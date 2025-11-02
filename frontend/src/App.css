@@ -1,0 +1,142 @@
+.App {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #0a0e27;
+  color: #ffffff;
+}
+
+.App-header {
+  background-color: #1a1f3a;
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.App-header h1 {
+  margin: 0 0 1rem 0;
+  font-size: 1.8rem;
+  color: #00d4ff;
+}
+
+.App-header nav {
+  display: flex;
+  gap: 2rem;
+}
+
+.App-header nav a {
+  color: #ffffff;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.App-header nav a:hover {
+  background-color: #2a3050;
+}
+
+main {
+  flex: 1;
+  padding: 2rem;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+footer {
+  background-color: #1a1f3a;
+  padding: 1rem;
+  text-align: center;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+/* Common styles */
+.card {
+  background-color: #1a1f3a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.button {
+  background-color: #00d4ff;
+  color: #0a0e27;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.button:hover {
+  background-color: #00b8e6;
+}
+
+.button-secondary {
+  background-color: #2a3050;
+  color: #ffffff;
+}
+
+.button-secondary:hover {
+  background-color: #3a4060;
+}
+
+/* Table styles */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+th {
+  background-color: #2a3050;
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #00d4ff;
+}
+
+td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #2a3050;
+}
+
+tr:hover {
+  background-color: #1a2040;
+}
+
+/* Utility classes */
+.positive {
+  color: #00ff88;
+}
+
+.negative {
+  color: #ff4444;
+}
+
+.score-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.score-high {
+  background-color: #00ff8844;
+  color: #00ff88;
+}
+
+.score-medium {
+  background-color: #ffaa0044;
+  color: #ffaa00;
+}
+
+.score-low {
+  background-color: #ff444444;
+  color: #ff4444;
+}
