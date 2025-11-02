@@ -1,0 +1,279 @@
+.watchlist {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.watchlist-header {
+  margin-bottom: 24px;
+}
+
+.watchlist-header h2 {
+  margin: 0 0 8px 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.watchlist-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.watchlist-card {
+  margin-bottom: 24px;
+}
+
+.watchlist-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.symbol-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: border-color 0.2s;
+}
+
+.symbol-input:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+.btn-add {
+  padding: 12px 24px;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-add:hover {
+  background: #1976d2;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(33, 150, 243, 0.3);
+}
+
+.watchlist-table-container {
+  overflow-x: auto;
+}
+
+.watchlist-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.watchlist-table th {
+  text-align: left;
+  padding: 12px;
+  background: #f8f9fa;
+  border-bottom: 2px solid #e0e0e0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.watchlist-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+
+.watchlist-table tr:hover {
+  background: #f8f9fa;
+}
+
+.symbol-cell {
+  font-weight: 700;
+  color: #2196f3;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.symbol-cell:hover {
+  color: #1976d2;
+  text-decoration: underline;
+}
+
+.company-cell {
+  color: #666;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-cell {
+  font-weight: 600;
+}
+
+.change-cell {
+  font-weight: 700;
+}
+
+.change-cell.positive {
+  color: #4caf50;
+}
+
+.change-cell.negative {
+  color: #f44336;
+}
+
+.ml-cell {
+  font-weight: 600;
+  color: #666;
+}
+
+.ml-cell.near {
+  color: #4caf50;
+  font-weight: 700;
+}
+
+.volume-cell {
+  color: #666;
+}
+
+.score-cell {
+  font-weight: 700;
+  color: #2196f3;
+}
+
+.pattern-cell {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-view,
+.btn-remove {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-view {
+  background: #2196f3;
+  color: white;
+}
+
+.btn-view:hover {
+  background: #1976d2;
+}
+
+.btn-remove {
+  background: #f44336;
+  color: white;
+}
+
+.btn-remove:hover {
+  background: #d32f2f;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-state p {
+  font-size: 16px;
+  color: #666;
+  margin: 8px 0;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #999;
+}
+
+.alerts-card {
+  background: #f8f9fa;
+}
+
+.alerts-description {
+  margin-bottom: 16px;
+  color: #666;
+  font-size: 14px;
+}
+
+.alerts-list {
+  margin: 0 0 16px 0;
+  padding-left: 24px;
+}
+
+.alerts-list li {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+
+.alerts-note {
+  margin: 0;
+  padding: 12px;
+  background: #fff3cd;
+  border-left: 4px solid #ff9800;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .watchlist {
+    padding: 16px;
+  }
+
+  .watchlist-controls {
+    flex-direction: column;
+  }
+
+  .btn-add {
+    width: 100%;
+  }
+
+  .watchlist-table {
+    font-size: 12px;
+  }
+
+  .watchlist-table th,
+  .watchlist-table td {
+    padding: 8px 6px;
+  }
+
+  .company-cell {
+    max-width: 100px;
+  }
+
+  .actions-cell {
+    flex-direction: column;
+  }
+
+  .btn-view,
+  .btn-remove {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+}

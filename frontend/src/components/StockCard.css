@@ -1,0 +1,189 @@
+.stock-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.stock-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  border-color: #2196f3;
+}
+
+.stock-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.stock-info {
+  flex: 1;
+}
+
+.stock-symbol {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.stock-name {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommendation-badge {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.recommendation-badge.strong-buy {
+  background: #4caf50;
+  color: white;
+}
+
+.recommendation-badge.buy {
+  background: #8bc34a;
+  color: white;
+}
+
+.recommendation-badge.hold {
+  background: #ffc107;
+  color: #333;
+}
+
+.recommendation-badge.sell {
+  background: #f44336;
+  color: white;
+}
+
+.stock-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.score-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.total-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 80px;
+}
+
+.total-score .score-label {
+  font-size: 11px;
+  opacity: 0.9;
+  margin-bottom: 4px;
+}
+
+.total-score .score-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.score-breakdown {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+}
+
+.score-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.score-item .score-label {
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.score-item .score-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.indicators-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.indicator-label {
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.indicator-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.indicator-value.positive {
+  color: #4caf50;
+}
+
+.indicator-value.high {
+  color: #4caf50;
+  font-weight: 700;
+}
+
+.indicator-value.medium {
+  color: #ff9800;
+}
+
+.indicator-value.low {
+  color: #999;
+}
+
+@media (max-width: 768px) {
+  .score-section {
+    flex-direction: column;
+  }
+
+  .score-breakdown {
+    width: 100%;
+  }
+
+  .indicators-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
