@@ -15,7 +15,6 @@ psycopg2-binary==2.9.9
 # Data Processing
 pandas==2.0.3
 numpy==1.24.4
-ta-lib==0.4.28
 
 # HTTP Clients
 httpx==0.25.1
