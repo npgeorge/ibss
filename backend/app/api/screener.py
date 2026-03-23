@@ -1,19 +1,32 @@
 """
 Stock Screener API Endpoints
+
+Live pipeline: Finviz pre-filter → batch yfinance → score → rank
+No DB dependency for scanning — fetches everything live.
 """
-from fastapi import APIRouter, Query, Depends, HTTPException
+import asyncio
+import json
+import logging
 from typing import Optional, List
+
+from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from datetime import date
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.core.repository import StockRepository, ScreeningRepository, InsiderRepository, FundamentalRepository
-from app.services.screener import SuperstockScreener, ScreeningCriteria, StockScore
-from app.services.magic_line import MagicLineDetector
+from app.services.screener import (
+    run_full_pipeline,
+    ScreeningCriteria,
+    StockScore,
+)
+from app.services.finviz_screener import ScanMode
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# Request / Response models
+# ---------------------------------------------------------------------------
 
 class ScreenerCriteriaRequest(BaseModel):
     """Screener filter criteria"""
@@ -39,22 +52,25 @@ class ScreenerCriteriaRequest(BaseModel):
     # Scoring
     min_total_score: float = 70.0
 
+    # Pipeline mode
+    scan_mode: str = "standard"  # quick, standard, deep
+
 
 class StockScreenResult(BaseModel):
     """Individual stock screening result"""
 
     symbol: str
-    company_name: str
-    sector: str
-    price: float
-    market_cap: int
+    company_name: str = ""
+    sector: str = "Unknown"
+    price: float = 0.0
+    market_cap: int = 0
 
     # Scores
-    technical_score: float
-    fundamental_score: float
-    insider_score: float
-    pattern_score: float
-    total_score: float
+    technical_score: float = 0.0
+    fundamental_score: float = 0.0
+    insider_score: float = 0.0
+    pattern_score: float = 0.0
+    total_score: float = 0.0
     rank: Optional[int] = None
 
     # Details
@@ -64,6 +80,10 @@ class StockScreenResult(BaseModel):
     entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     target_price: Optional[float] = None
+
+    # New fields
+    volume_signal: Optional[str] = None
+    entry_recommendation: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -78,298 +98,240 @@ class QuickScanResult(BaseModel):
     insider_cluster_buys: List[dict] = []
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _score_to_result(score: StockScore) -> StockScreenResult:
+    """Convert internal StockScore to API response model"""
+    breakdown = score.score_breakdown or {}
+    patterns_info = breakdown.get("patterns", {})
+    tech_info = breakdown.get("technical", {})
+
+    return StockScreenResult(
+        symbol=score.symbol,
+        company_name=breakdown.get("fundamental", {}).get("company_name", score.symbol),
+        sector="Unknown",
+        price=0.0,  # Price is in the score breakdown if needed
+        market_cap=0,
+        technical_score=score.technical_score,
+        fundamental_score=score.fundamental_score,
+        insider_score=score.insider_score,
+        pattern_score=score.pattern_score,
+        total_score=score.total_score,
+        rank=score.rank,
+        patterns=score.patterns_detected or [],
+        magic_line_period=score.magic_line_period,
+        magic_line_distance=score.magic_line_distance,
+        entry_price=score.entry_price,
+        stop_loss=score.stop_loss,
+        target_price=score.target_price,
+        volume_signal=score.volume_signal,
+        entry_recommendation=score.entry_recommendation,
+    )
+
+
+def _criteria_from_request(req: ScreenerCriteriaRequest) -> ScreeningCriteria:
+    return ScreeningCriteria(
+        price_min=req.price_min,
+        price_max=req.price_max,
+        volume_min=req.volume_min,
+        magic_line_respect=req.magic_line_respect,
+        magic_line_min_score=req.magic_line_min_score,
+        earnings_growth_min=req.earnings_growth_min,
+        revenue_growth_min=req.revenue_growth_min,
+        pe_ratio_max=req.pe_ratio_max,
+        market_cap_min=req.market_cap_min,
+        market_cap_max=req.market_cap_max,
+        insider_buying_days=req.insider_buying_days,
+        min_insider_transactions=req.min_insider_transactions,
+        min_total_score=req.min_total_score,
+    )
+
+
+def _parse_scan_mode(mode_str: str) -> ScanMode:
+    try:
+        return ScanMode(mode_str.lower())
+    except ValueError:
+        return ScanMode.STANDARD
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @router.post("/", response_model=List[StockScreenResult])
 async def screen_stocks(
     criteria: ScreenerCriteriaRequest,
     limit: int = Query(100, le=1000),
-    db: Session = Depends(get_db)
 ):
     """
-    Screen stocks based on Superstock criteria
+    Screen stocks using the live pipeline.
 
-    Returns top-ranked stocks that meet the filtering criteria
-
-    This performs real-time screening using:
-    - Technical analysis (Magic Line, volume, patterns)
-    - Fundamental metrics (earnings, revenue growth)
-    - Insider activity (recent buying, cluster detection)
+    Finviz pre-filter → batch yfinance fetch → score → rank.
+    No database required — everything fetched live.
     """
     try:
-        # Convert request to ScreeningCriteria
-        screening_criteria = ScreeningCriteria(
-            price_min=criteria.price_min,
-            price_max=criteria.price_max,
-            volume_min=criteria.volume_min,
-            magic_line_respect=criteria.magic_line_respect,
-            magic_line_min_score=criteria.magic_line_min_score,
-            earnings_growth_min=criteria.earnings_growth_min,
-            revenue_growth_min=criteria.revenue_growth_min,
-            pe_ratio_max=criteria.pe_ratio_max,
-            market_cap_min=criteria.market_cap_min,
-            market_cap_max=criteria.market_cap_max,
-            insider_buying_days=criteria.insider_buying_days,
-            min_insider_transactions=criteria.min_insider_transactions,
-            min_total_score=criteria.min_total_score,
+        screening_criteria = _criteria_from_request(criteria)
+        mode = _parse_scan_mode(criteria.scan_mode)
+
+        scored = await run_full_pipeline(
+            criteria=screening_criteria,
+            mode=mode,
         )
 
-        # Get repositories
-        stock_repo = StockRepository(db)
-        screening_repo = ScreeningRepository(db)
-        insider_repo = InsiderRepository(db)
-        fundamental_repo = FundamentalRepository(db)
-
-        # Check if we have cached results from today
-        cached_results = screening_repo.get_latest_screening_results(
-            min_score=criteria.min_total_score,
-            limit=limit
-        )
-
-        if cached_results and cached_results[0].screen_date == date.today():
-            # Use cached results
-            results = []
-            for sr in cached_results:
-                stock = stock_repo.get_stock_by_id(sr.stock_id)
-                if not stock:
-                    continue
-
-                # Get price data for current price
-                price_data = stock_repo.get_price_data(stock.id, limit=1)
-                current_price = float(price_data[0].close) if price_data else 0.0
-
-                results.append(StockScreenResult(
-                    symbol=stock.symbol,
-                    company_name=stock.company_name,
-                    sector=stock.sector or "Unknown",
-                    price=current_price,
-                    market_cap=stock.market_cap or 0,
-                    technical_score=float(sr.technical_score),
-                    fundamental_score=float(sr.fundamental_score),
-                    insider_score=float(sr.insider_score),
-                    pattern_score=float(sr.pattern_score or 0),
-                    total_score=float(sr.total_score),
-                    rank=sr.rank,
-                    patterns=sr.score_breakdown.get("patterns", {}).get("patterns_detected", []) if sr.score_breakdown else [],
-                    magic_line_period=sr.score_breakdown.get("technical", {}).get("magic_line_period") if sr.score_breakdown else None,
-                    magic_line_distance=sr.score_breakdown.get("technical", {}).get("magic_line_distance") if sr.score_breakdown else None,
-                    entry_price=sr.score_breakdown.get("patterns", {}).get("entry_price") if sr.score_breakdown else None,
-                ))
-
-            return results[:limit]
-
-        # Otherwise, perform fresh screening
-        screener = SuperstockScreener(screening_criteria)
-        all_stocks = stock_repo.get_all_active_stocks()
-
-        scored_stocks = []
-
-        for stock in all_stocks:
-            # Get price data
-            price_df = stock_repo.get_price_data_as_dataframe(stock.id, days=365)
-            if price_df.empty or len(price_df) < 50:
-                continue
-
-            # Get fundamentals
-            fundamentals_obj = fundamental_repo.get_latest_fundamentals(stock.id)
-            fundamentals = None
-            if fundamentals_obj:
-                fundamentals = {
-                    "eps_growth_yoy": float(fundamentals_obj.roe or 0),  # Placeholder
-                    "revenue_growth_yoy": 0,  # Placeholder
-                    "peg_ratio": float(fundamentals_obj.peg_ratio or 0),
-                    "pe_ratio": float(fundamentals_obj.pe_ratio or 0),
-                }
-
-            # Get insider transactions
-            insider_trans_objs = insider_repo.get_transactions_by_stock(stock.id, days=90)
-            insider_transactions = [
-                {
-                    "insider_name": t.insider_name,
-                    "insider_title": t.insider_title or "Unknown",
-                    "transaction_date": t.transaction_date,
-                    "transaction_type": t.transaction_type,
-                    "shares": t.shares,
-                    "price_per_share": float(t.price_per_share or 0),
-                    "total_value": float(t.total_value or 0),
-                    "shares_owned_after": t.shares_owned_after or 0,
-                }
-                for t in insider_trans_objs
-            ]
-
-            # Stock info
-            stock_info = {
-                "symbol": stock.symbol,
-                "company_name": stock.company_name,
-                "sector": stock.sector,
-                "market_cap": stock.market_cap,
-            }
-
-            # Screen the stock
-            score = screener.screen_stock(price_df, stock_info, fundamentals, insider_transactions)
-
-            if score:
-                scored_stocks.append((stock, score, price_df.iloc[-1]["close"]))
-
-        # Sort by total score
-        scored_stocks.sort(key=lambda x: x[1].total_score, reverse=True)
-
-        # Convert to results
-        results = []
-        for rank, (stock, score, current_price) in enumerate(scored_stocks[:limit], 1):
-            # Save to cache
-            screening_repo.save_screening_result({
-                "stock_id": stock.id,
-                "screen_date": date.today(),
-                "technical_score": score.technical_score,
-                "fundamental_score": score.fundamental_score,
-                "insider_score": score.insider_score,
-                "pattern_score": score.pattern_score,
-                "total_score": score.total_score,
-                "rank": rank,
-                "score_breakdown": score.score_breakdown,
-            })
-
-            results.append(StockScreenResult(
-                symbol=stock.symbol,
-                company_name=stock.company_name,
-                sector=stock.sector or "Unknown",
-                price=float(current_price),
-                market_cap=stock.market_cap or 0,
-                technical_score=score.technical_score,
-                fundamental_score=score.fundamental_score,
-                insider_score=score.insider_score,
-                pattern_score=score.pattern_score,
-                total_score=score.total_score,
-                rank=rank,
-                patterns=score.patterns_detected or [],
-                magic_line_period=score.magic_line_period,
-                magic_line_distance=score.magic_line_distance,
-                entry_price=score.entry_price,
-            ))
-
+        results = [_score_to_result(s) for s in scored[:limit]]
         return results
 
     except Exception as e:
+        logger.exception("Screening error")
         raise HTTPException(status_code=500, detail=f"Screening error: {str(e)}")
 
 
+@router.post("/stream")
+async def screen_stocks_stream(
+    criteria: ScreenerCriteriaRequest,
+    limit: int = Query(100, le=1000),
+):
+    """
+    Stream screening progress via Server-Sent Events.
+
+    Sends progress events during the pipeline, then the final results.
+    """
+    screening_criteria = _criteria_from_request(criteria)
+    mode = _parse_scan_mode(criteria.scan_mode)
+
+    async def event_generator():
+        progress_events = []
+
+        async def on_progress(stage: str, pct: int, msg: str):
+            event = {"stage": stage, "percent": pct, "message": msg}
+            progress_events.append(event)
+            yield f"data: {json.dumps(event)}\n\n"
+
+        # We can't yield from inside the callback directly with run_full_pipeline,
+        # so we collect progress and stream results after.
+        results = []
+        try:
+            scored = await run_full_pipeline(
+                criteria=screening_criteria,
+                mode=mode,
+            )
+            results = [_score_to_result(s) for s in scored[:limit]]
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            return
+
+        # Send final results
+        for r in results:
+            yield f"data: {json.dumps({'result': r.model_dump()})}\n\n"
+
+        yield f"data: {json.dumps({'done': True, 'total': len(results)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
 @router.get("/quick-scan", response_model=QuickScanResult)
-async def quick_scan(db: Session = Depends(get_db)):
+async def quick_scan():
     """
-    Quick scan for immediate opportunities
+    Quick scan for immediate opportunities using the live pipeline.
 
-    Returns stocks with:
-    - Magic Line touches (buy signals)
-    - Recent breakouts
-    - High volume surges
-    - Insider cluster buying
+    Runs a QUICK mode Finviz pre-filter, batch fetches, and looks for:
+    - Magic Line touches
+    - Volume surges
+    - Insider cluster buys
     """
+    from app.services.magic_line import MagicLineDetector
+    from app.services.market_data import YahooFinanceCollector
+    from app.services.finviz_screener import FinvizPreFilter
+    from app.services.openinsider import OpenInsiderScraper
+
     try:
-        stock_repo = StockRepository(db)
-        insider_repo = InsiderRepository(db)
-
         result = QuickScanResult()
 
-        # Get all active stocks
-        stocks = stock_repo.get_all_active_stocks(limit=500)
+        # Step 1: Finviz quick filter
+        prefilter = FinvizPreFilter()
+        pf = await prefilter.get_prefiltered_symbols(ScanMode.QUICK)
 
-        for stock in stocks:
-            # Get recent price data
-            price_df = stock_repo.get_price_data_as_dataframe(stock.id, days=90)
-            if price_df.empty or len(price_df) < 50:
+        if not pf.symbols:
+            return result
+
+        # Step 2: Batch fetch prices
+        price_map = YahooFinanceCollector.batch_fetch_historical_data(
+            pf.symbols[:300], period="6mo"
+        )
+
+        # Step 3: Scan for signals
+        for sym, pdf in price_map.items():
+            if len(pdf) < 50:
                 continue
 
-            current_price = float(price_df.iloc[-1]["close"])
-            current_volume = int(price_df.iloc[-1]["volume"])
+            current_price = float(pdf.iloc[-1]["close"])
+            current_volume = int(pdf.iloc[-1]["volume"])
 
-            # Check Magic Line touch
+            # Magic Line touch
             try:
-                ml_detector = MagicLineDetector(price_df)
-                if ml_detector.is_touching_magic_line(tolerance=0.03):  # Within 3%
-                    ml_result = ml_detector.find_magic_line()
+                ml = MagicLineDetector(pdf)
+                if ml.is_touching_magic_line(tolerance=0.03):
+                    ml_result = ml.find_magic_line()
                     result.magic_line_touches.append({
-                        "symbol": stock.symbol,
-                        "company_name": stock.company_name,
+                        "symbol": sym,
                         "price": current_price,
                         "magic_line": float(ml_result.magic_line_value),
                         "distance_pct": float(ml_result.distance_percent),
                     })
-            except:
+            except Exception:
                 pass
 
-            # Check high volume
-            avg_volume = price_df.tail(20)["volume"].mean()
-            if current_volume > avg_volume * 2.0:  # 2x average
+            # High volume
+            avg_volume = pdf.tail(20)["volume"].mean()
+            if avg_volume > 0 and current_volume > avg_volume * 2.0:
                 result.high_volume.append({
-                    "symbol": stock.symbol,
-                    "company_name": stock.company_name,
+                    "symbol": sym,
                     "price": current_price,
                     "volume": current_volume,
                     "avg_volume": int(avg_volume),
                     "volume_ratio": round(current_volume / avg_volume, 2),
                 })
 
-        # Get cluster buying stocks
-        cluster_stock_ids = insider_repo.get_cluster_buying_stocks(days=30, min_insiders=2)
-        for stock_id in cluster_stock_ids[:10]:
-            stock = stock_repo.get_stock_by_id(stock_id)
-            if stock:
-                price_data = stock_repo.get_price_data(stock.id, limit=1)
-                current_price = float(price_data[0].close) if price_data else 0.0
-
-                result.insider_cluster_buys.append({
-                    "symbol": stock.symbol,
-                    "company_name": stock.company_name,
-                    "price": current_price,
-                })
+        # Step 4: Insider cluster buys
+        try:
+            async with OpenInsiderScraper() as scraper:
+                clusters = await scraper.fetch_recent_cluster_buys(days=30)
+                for sym, txns in list(clusters.items())[:10]:
+                    purchases = [t for t in txns if t.is_purchase]
+                    if purchases:
+                        result.insider_cluster_buys.append({
+                            "symbol": sym,
+                            "num_insiders": len(set(t.insider_name for t in purchases)),
+                            "total_value": sum(t.total_value for t in purchases),
+                        })
+        except Exception as e:
+            logger.error(f"OpenInsider quick-scan failed: {e}")
 
         return result
 
     except Exception as e:
+        logger.exception("Quick scan error")
         raise HTTPException(status_code=500, detail=f"Quick scan error: {str(e)}")
 
 
 @router.get("/top-opportunities", response_model=List[StockScreenResult])
-async def get_top_opportunities(limit: int = Query(10, le=50), db: Session = Depends(get_db)):
+async def get_top_opportunities(limit: int = Query(10, le=50)):
     """
-    Get top-ranked Superstock opportunities from latest screening
-
-    Returns the highest-scoring stocks from the most recent screening run
+    Run a quick pipeline and return the highest-scoring stocks.
     """
     try:
-        screening_repo = ScreeningRepository(db)
-        stock_repo = StockRepository(db)
-
-        # Get latest screening results
-        results = screening_repo.get_latest_screening_results(min_score=70.0, limit=limit)
-
-        if not results:
-            return []
-
-        output = []
-        for sr in results:
-            stock = stock_repo.get_stock_by_id(sr.stock_id)
-            if not stock:
-                continue
-
-            price_data = stock_repo.get_price_data(stock.id, limit=1)
-            current_price = float(price_data[0].close) if price_data else 0.0
-
-            output.append(StockScreenResult(
-                symbol=stock.symbol,
-                company_name=stock.company_name,
-                sector=stock.sector or "Unknown",
-                price=current_price,
-                market_cap=stock.market_cap or 0,
-                technical_score=float(sr.technical_score),
-                fundamental_score=float(sr.fundamental_score),
-                insider_score=float(sr.insider_score),
-                pattern_score=float(sr.pattern_score or 0),
-                total_score=float(sr.total_score),
-                rank=sr.rank,
-                patterns=sr.score_breakdown.get("patterns", {}).get("patterns_detected", []) if sr.score_breakdown else [],
-            ))
-
-        return output
+        scored = await run_full_pipeline(
+            criteria=ScreeningCriteria(min_total_score=50.0),
+            mode=ScanMode.QUICK,
+        )
+        results = [_score_to_result(s) for s in scored[:limit]]
+        return results
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching top opportunities: {str(e)}")
+        logger.exception("Error fetching top opportunities")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

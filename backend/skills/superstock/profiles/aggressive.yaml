@@ -1,0 +1,50 @@
+# Aggressive Superstock Investor Profile
+# Higher risk tolerance, focused on maximum upside potential
+
+name: Aggressive
+description: Seeks maximum upside with higher risk tolerance. Prioritizes small float, strong technicals, and insider buying over fundamentals.
+
+# Minimum score to include in results
+min_score: 50
+
+# Minimum criteria that must be met
+min_criteria_met: 8
+
+# Criteria weight adjustments (multipliers on base weights)
+weight_adjustments:
+  magic_line: 1.2        # Emphasize technicals
+  volume_surge: 1.3      # Love breakouts
+  volume_dryup: 1.2      # Accumulation signature
+  float_shares: 1.5      # Small float = explosive
+  insider_buying: 1.3    # Follow smart money
+  relative_strength: 1.2 # Momentum matters
+  near_52w_high: 1.0     # Near highs ok
+  price_range: 0.8       # Less strict on price
+  peg_ratio: 0.7         # Less focus on value
+  earnings_growth: 0.8   # Growth nice but not required
+  debt_equity: 0.5       # Can tolerate debt
+
+# Filter adjustments for pre-screening
+filters:
+  max_price: 100         # Allow higher prices
+  min_volume: 50000      # Accept lower liquidity
+  max_market_cap: 20000  # Include mid-caps (millions)
+  min_market_cap: 10     # Accept very small caps
+
+# Entry signal preferences
+preferred_signals:
+  - breakout_volume      # Jump on breakouts
+  - magic_line_touch     # Buy the dip
+  - pattern_complete     # Technical triggers
+
+# Risk parameters
+risk:
+  max_positions: 15
+  max_position_size_pct: 10
+  stop_loss_pct: 15      # Wider stops
+  chase_tolerance_pct: 25 # Will buy up to 25% above ML
+
+# Market condition overrides
+market_conditions:
+  ignore_vix_warning: true   # Trade in volatility
+  min_spy_trend: neutral     # Trade in choppy markets

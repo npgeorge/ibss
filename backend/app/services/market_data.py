@@ -6,6 +6,7 @@ Fetches stock price data from various sources:
 - Alpha Vantage (free tier available)
 - Polygon.io (paid)
 """
+import time as _time
 import yfinance as yf
 import pandas as pd
 import asyncio
@@ -96,6 +97,120 @@ class YahooFinanceCollector:
         except Exception as e:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return pd.DataFrame()
+
+    @staticmethod
+    def batch_fetch_historical_data(
+        symbols: List[str],
+        period: str = "1y",
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch historical price data for multiple symbols in a single batched call.
+
+        Uses yf.download() which is dramatically faster than per-symbol fetching.
+
+        Args:
+            symbols: List of stock symbols
+            period: Period string (e.g., '1y', '2y')
+
+        Returns:
+            Dict mapping symbol to DataFrame with columns:
+            ['date', 'open', 'high', 'low', 'close', 'volume']
+        """
+        if not symbols:
+            return {}
+
+        start = _time.time()
+        results = {}
+
+        try:
+            logger.info(f"Batch fetching {len(symbols)} symbols with period={period}")
+
+            df = yf.download(
+                symbols,
+                period=period,
+                group_by="ticker",
+                threads=True,
+                progress=False,
+            )
+
+            if df.empty:
+                logger.warning("Batch download returned empty DataFrame")
+                return {}
+
+            elapsed = _time.time() - start
+            logger.info(f"Batch download completed in {elapsed:.1f}s for {len(symbols)} symbols")
+
+            # Handle single symbol case: yf.download returns flat columns (no MultiIndex)
+            if len(symbols) == 1:
+                sym = symbols[0]
+                sub = df.copy()
+                sub.columns = [c.lower() if isinstance(c, str) else c for c in sub.columns]
+
+                # Ensure expected columns exist
+                required = {"open", "high", "low", "close", "volume"}
+                if not required.issubset(set(sub.columns)):
+                    logger.warning(f"{sym}: Missing required columns, got {list(sub.columns)}")
+                    return {}
+
+                sub = sub[["open", "high", "low", "close", "volume"]].copy()
+                sub = sub.dropna(subset=["close"])
+
+                if len(sub) < 10:
+                    return {}
+
+                sub = sub.reset_index()
+                # Rename the index column (Date or Datetime) to 'date'
+                if "Date" in sub.columns:
+                    sub = sub.rename(columns={"Date": "date"})
+                elif "Datetime" in sub.columns:
+                    sub = sub.rename(columns={"Datetime": "date"})
+                sub["date"] = pd.to_datetime(sub["date"])
+                sub.index = sub["date"]
+                sub.index.name = "date"
+
+                results[sym] = sub
+                return results
+
+            # Multi-symbol case: MultiIndex columns (symbol, field)
+            for sym in symbols:
+                try:
+                    if sym not in df.columns.get_level_values(0):
+                        continue
+
+                    sub = df[sym].copy()
+                    sub.columns = [c.lower() for c in sub.columns]
+
+                    required = {"open", "high", "low", "close", "volume"}
+                    if not required.issubset(set(sub.columns)):
+                        continue
+
+                    sub = sub[["open", "high", "low", "close", "volume"]].copy()
+                    sub = sub.dropna(subset=["close"])
+
+                    if len(sub) < 10:
+                        continue
+
+                    sub = sub.reset_index()
+                    if "Date" in sub.columns:
+                        sub = sub.rename(columns={"Date": "date"})
+                    elif "Datetime" in sub.columns:
+                        sub = sub.rename(columns={"Datetime": "date"})
+                    sub["date"] = pd.to_datetime(sub["date"])
+                    sub.index = sub["date"]
+                    sub.index.name = "date"
+
+                    results[sym] = sub
+
+                except Exception as e:
+                    logger.debug(f"Error extracting data for {sym}: {e}")
+                    continue
+
+            logger.info(f"Batch fetch: {len(results)}/{len(symbols)} symbols had valid data")
+            return results
+
+        except Exception as e:
+            logger.error(f"Batch fetch failed: {e}")
+            return {}
 
     @staticmethod
     def fetch_stock_info(symbol: str) -> Dict:

@@ -190,7 +190,10 @@ class MagicLineDetector:
             ma = sma.iloc[i]
 
             if low <= ma <= high:
-                return str(self.data.index[i].date())
+                idx = self.data.index[i]
+                if hasattr(idx, 'date'):
+                    return str(idx.date())
+                return str(idx)
 
         return None
 

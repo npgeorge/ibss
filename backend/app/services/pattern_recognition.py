@@ -51,6 +51,14 @@ class PatternRecognizer:
             price_data: DataFrame with columns ['date', 'open', 'high', 'low', 'close', 'volume']
         """
         self.data = price_data.copy()
+        # Normalize: ensure "date" is a plain column, not an index
+        if self.data.index.name == "date":
+            if "date" in self.data.columns:
+                # "date" exists as both index and column — drop the index
+                self.data = self.data.reset_index(drop=True)
+            else:
+                # "date" is only the index — move it to a column
+                self.data = self.data.reset_index()
         self.data = self.data.sort_values("date").reset_index(drop=True)
 
     def detect_all_patterns(self) -> List[PatternResult]:

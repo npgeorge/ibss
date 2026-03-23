@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_sync_db
 from app.models.database import Stock, DataUpdate
 from app.services.market_data import YahooFinanceCollector, aggregate_to_weekly
-from app.services.insider_parser import SECEdgarInsiderParser
+from app.services.openinsider import OpenInsiderScraper
 from app.services.technical_indicators import TechnicalIndicatorCalculator
 import pandas as pd
 
@@ -36,7 +36,7 @@ class DataUpdateScheduler:
 
     def __init__(self):
         self.market_data_collector = YahooFinanceCollector()
-        self.insider_parser = SECEdgarInsiderParser()
+        self.insider_parser = OpenInsiderScraper()
         self.is_running = False
 
     async def start(self):

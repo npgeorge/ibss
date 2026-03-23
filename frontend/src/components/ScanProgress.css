@@ -1,0 +1,97 @@
+/**
+ * ScanProgress Component Styles
+ */
+
+.scan-progress {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.scan-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.scan-progress-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.scan-cancel-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.scan-cancel-btn:hover {
+  background: #dc2626;
+}
+
+.scan-progress-bar-container {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.scan-progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 4px;
+  transition: width 0.3s ease-out;
+}
+
+.scan-progress-stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.scan-stat {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.scan-stat strong {
+  color: #374151;
+  font-weight: 600;
+}
+
+.scan-error {
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.scan-status-message {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Animation for scanning state */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.scan-progress[data-phase="scanning"] .scan-progress-label {
+  animation: pulse 1.5s ease-in-out infinite;
+}
