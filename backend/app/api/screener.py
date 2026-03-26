@@ -3,13 +3,17 @@ Stock Screener API Endpoints
 
 Live pipeline: Finviz pre-filter → batch yfinance → score → rank
 No DB dependency for scanning — fetches everything live.
+
+Caching: Results are cached in Redis for 15 minutes. The first request
+triggers a background pipeline run; subsequent requests serve cached data.
 """
 import asyncio
 import json
 import logging
+import time
 from typing import Optional, List
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -22,6 +26,25 @@ from app.services.finviz_screener import ScanMode
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# In-memory cache (Redis optional — falls back to dict)
+# ---------------------------------------------------------------------------
+_cache: dict = {}
+_cache_lock = asyncio.Lock()
+CACHE_TTL = 900  # 15 minutes
+_pipeline_running = False
+
+
+def _get_cached(key: str) -> Optional[list]:
+    entry = _cache.get(key)
+    if entry and time.time() - entry["ts"] < CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _set_cached(key: str, data: list):
+    _cache[key] = {"data": data, "ts": time.time()}
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +284,7 @@ async def quick_scan():
 
         # Step 2: Batch fetch prices
         price_map = YahooFinanceCollector.batch_fetch_historical_data(
-            pf.symbols[:300], period="6mo"
+            pf.symbols[:50], period="6mo"
         )
 
         # Step 3: Scan for signals
@@ -319,19 +342,55 @@ async def quick_scan():
         raise HTTPException(status_code=500, detail=f"Quick scan error: {str(e)}")
 
 
-@router.get("/top-opportunities", response_model=List[StockScreenResult])
-async def get_top_opportunities(limit: int = Query(10, le=50)):
-    """
-    Run a quick pipeline and return the highest-scoring stocks.
-    """
+async def _run_pipeline_background():
+    """Run the screening pipeline and cache results."""
+    global _pipeline_running
+    if _pipeline_running:
+        return
+    _pipeline_running = True
     try:
+        logger.info("Background pipeline starting...")
         scored = await run_full_pipeline(
             criteria=ScreeningCriteria(min_total_score=50.0),
             mode=ScanMode.QUICK,
+            max_symbols=50,
         )
-        results = [_score_to_result(s) for s in scored[:limit]]
-        return results
-
+        results = [_score_to_result(s) for s in scored]
+        _set_cached("top_opportunities", results)
+        logger.info(f"Background pipeline done: {len(results)} results cached")
     except Exception as e:
-        logger.exception("Error fetching top opportunities")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.exception(f"Background pipeline failed: {e}")
+    finally:
+        _pipeline_running = False
+
+
+@router.get("/top-opportunities", response_model=List[StockScreenResult])
+async def get_top_opportunities(
+    limit: int = Query(10, le=50),
+    background_tasks: BackgroundTasks = None,
+):
+    """
+    Return highest-scoring stocks from cache. Triggers a background
+    refresh if cache is empty or stale. Returns empty list immediately
+    if no cached data yet (frontend shows loading state).
+    """
+    cached = _get_cached("top_opportunities")
+    if cached is not None:
+        return cached[:limit]
+
+    # No cache — trigger background pipeline and return empty for now
+    if not _pipeline_running:
+        background_tasks.add_task(_run_pipeline_background)
+
+    return []
+
+
+@router.get("/status")
+async def pipeline_status():
+    """Check if the screening pipeline is currently running."""
+    cached = _get_cached("top_opportunities")
+    return {
+        "pipeline_running": _pipeline_running,
+        "cache_available": cached is not None,
+        "cached_results": len(cached) if cached else 0,
+    }

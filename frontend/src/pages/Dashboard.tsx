@@ -24,13 +24,21 @@ const Dashboard: React.FC = () => {
     loadDashboardData();
   }, []);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
 
       // Load top opportunities
       const opportunities = await apiClient.getTopOpportunities(10);
+
+      if (opportunities.length === 0 && retryCount < 5) {
+        // Pipeline is running in the background — retry after a delay
+        setLoading(true);
+        setTimeout(() => loadDashboardData(retryCount + 1), 10000);
+        return;
+      }
+
       setTopOpportunities(opportunities);
 
       // Calculate stats from opportunities

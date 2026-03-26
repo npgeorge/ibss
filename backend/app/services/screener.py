@@ -520,6 +520,7 @@ async def run_full_pipeline(
     criteria: Optional[ScreeningCriteria] = None,
     mode: ScanMode = ScanMode.STANDARD,
     progress_callback=None,
+    max_symbols: Optional[int] = None,
 ) -> List[StockScore]:
     """
     Run the complete screening pipeline:
@@ -558,6 +559,10 @@ async def run_full_pipeline(
     if not symbols:
         logger.warning("Finviz pre-filter returned 0 symbols")
         return []
+
+    # Cap symbols if requested (speeds up QUICK mode dramatically)
+    if max_symbols and len(symbols) > max_symbols:
+        symbols = symbols[:max_symbols]
 
     await _progress("finviz", 100, f"Got {len(symbols)} candidates from Finviz")
 

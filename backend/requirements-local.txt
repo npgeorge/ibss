@@ -1,0 +1,40 @@
+# FastAPI and Core
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+
+# Database
+sqlalchemy>=2.0.23
+asyncpg>=0.29.0
+alembic>=1.12.1
+redis>=5.0.1
+
+# Data Processing
+pandas>=2.0.3
+numpy>=1.24.4
+# ta-lib requires C library - install separately if needed
+
+# HTTP Clients
+httpx>=0.25.1
+aiohttp>=3.9.1
+requests>=2.31.0
+
+# Market Data
+yfinance>=0.2.33
+beautifulsoup4>=4.12.2
+lxml>=4.9.3
+finvizfinance>=0.14.7
+
+# Scheduling
+apscheduler>=3.10.4
+
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
+
+# Utilities
+python-dateutil>=2.8.2
+pytz>=2023.3
