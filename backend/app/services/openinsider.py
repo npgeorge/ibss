@@ -304,7 +304,7 @@ class OpenInsiderScraper:
                 f"&ll=&lh=&fd={days}&fdr=&td=0&tdr=&"
                 f"fdlyl=&fdlyh=&dtefrom=&dteto=&"
                 f"xp=1&xs=0&vl=10000&vh=&"  # Purchases only, >$10k
-                f"ocl=&och=&seson=1&"
+                f"ocl=&och=&session=1&"
                 f"cnt=1000"  # Get up to 1000 results
             )
 
@@ -326,6 +326,44 @@ class OpenInsiderScraper:
             logger.error(f"Error fetching recent purchases: {e}")
             return {}
 
+    # Maps a normalized OpenInsider header label to the InsiderTransaction field
+    # it feeds. The "ticker" search page and the market-wide screener emit
+    # different column sets (the per-symbol view omits "Company Name"), so we
+    # resolve columns by header name rather than by fixed index.
+    _COLUMN_ALIASES = {
+        "filing date": "filing_date",
+        "trade date": "trade_date",
+        "ticker": "symbol",
+        "company name": "company",
+        "insider name": "insider_name",
+        "title": "insider_title",
+        "trade type": "tx_type",
+        "price": "price",
+        "qty": "quantity",
+        "owned": "shares_owned",
+        "δown": "delta_owned",
+        "value": "total_value",
+    }
+
+    def _build_column_map(self, table) -> Dict[str, int]:
+        """Map InsiderTransaction field names to their <td> index via headers."""
+        header_row = None
+        thead = table.find("thead")
+        if thead:
+            header_row = thead.find("tr")
+        if header_row is None:
+            header_row = table.find("tr")
+        if header_row is None:
+            return {}
+
+        col_map = {}
+        for idx, th in enumerate(header_row.find_all(["th", "td"])):
+            label = th.get_text(strip=True).replace("\xa0", " ").lower()
+            field = self._COLUMN_ALIASES.get(label)
+            if field and field not in col_map:
+                col_map[field] = idx
+        return col_map
+
     def _parse_transaction_table(self, html: str) -> List[InsiderTransaction]:
         """Parse OpenInsider transaction table"""
         soup = BeautifulSoup(html, "lxml")
@@ -336,28 +374,48 @@ class OpenInsiderScraper:
         if not table:
             return transactions
 
-        rows = table.find_all("tr")[1:]  # Skip header
+        col_map = self._build_column_map(table)
+        # Without a recognizable header we cannot trust column positions
+        # (the two OpenInsider layouts differ), so bail rather than misparse.
+        required = ("trade_date", "symbol", "tx_type", "price")
+        if not all(c in col_map for c in required):
+            logger.warning(
+                "OpenInsider header not recognized; columns=%s", sorted(col_map)
+            )
+            return transactions
+
+        body = table.find("tbody")
+        rows = body.find_all("tr") if body else table.find_all("tr")[1:]
+        max_idx = max(col_map.values())
+
+        def cell(cells, field, default=""):
+            idx = col_map.get(field)
+            if idx is None or idx >= len(cells):
+                return default
+            return cells[idx].text.strip()
 
         for row in rows:
             try:
                 cells = row.find_all("td")
-                if len(cells) < 14:
+                if len(cells) <= max_idx:
                     continue
 
-                # Parse fields
-                filing_date = self._parse_date(cells[1].text.strip())
-                trade_date = self._parse_date(cells[2].text.strip())
+                filing_date = self._parse_date(cell(cells, "filing_date"))
+                trade_date = self._parse_date(cell(cells, "trade_date"))
 
-                # Get ticker from link
-                ticker_link = cells[3].find("a")
-                symbol = ticker_link.text.strip() if ticker_link else cells[3].text.strip()
+                # Get ticker from link when present
+                ticker_cell = cells[col_map["symbol"]]
+                ticker_link = ticker_cell.find("a")
+                symbol = (
+                    ticker_link.text.strip() if ticker_link else ticker_cell.text.strip()
+                )
 
-                company = cells[4].text.strip()
-                insider_name = cells[5].text.strip()
-                insider_title = cells[6].text.strip()
+                company = cell(cells, "company")
+                insider_name = cell(cells, "insider_name")
+                insider_title = cell(cells, "insider_title")
 
-                # Transaction type
-                tx_type_text = cells[7].text.strip()
+                # Transaction type (e.g. "P - Purchase", "S - Sale+OE")
+                tx_type_text = cell(cells, "tx_type")
                 if tx_type_text.startswith("P"):
                     tx_type = TransactionType.PURCHASE
                 elif tx_type_text.startswith("S"):
@@ -367,11 +425,11 @@ class OpenInsiderScraper:
                 else:
                     tx_type = TransactionType.GIFT
 
-                price = self._parse_float(cells[8].text.strip())
-                quantity = self._parse_int(cells[9].text.strip())
-                shares_owned = self._parse_int(cells[10].text.strip())
-                delta_owned = self._parse_percent(cells[11].text.strip())
-                total_value = self._parse_float(cells[12].text.strip())
+                price = self._parse_float(cell(cells, "price"))
+                quantity = self._parse_int(cell(cells, "quantity"))
+                shares_owned = self._parse_int(cell(cells, "shares_owned"))
+                delta_owned = self._parse_percent(cell(cells, "delta_owned"))
+                total_value = self._parse_float(cell(cells, "total_value"))
 
                 transaction = InsiderTransaction(
                     filing_date=filing_date or datetime.utcnow(),

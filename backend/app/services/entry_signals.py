@@ -82,6 +82,10 @@ class EntrySignalResult:
     overall_score: float
     recommendation: str  # "buy_now", "wait_for_pullback", "watch", "avoid"
 
+    # Book entry laws
+    dont_chase: bool = False  # price extended >20% above Magic Line — do not chase
+    scale_in_guidance: str = ""  # how to build the position (scale-in plan)
+
 
 class EntrySignalDetector:
     """
@@ -190,8 +194,17 @@ class EntrySignalDetector:
         # Calculate overall score
         overall_score = best_signal.score if best_signal else 0
 
+        # Don't-chase law: never enter when extended >20% above the Magic Line.
+        dont_chase = distance_from_ml > 20
+
         # Determine recommendation
         recommendation = self._get_recommendation(signals, distance_from_ml, distance_from_high)
+        if dont_chase and recommendation == "buy_now":
+            recommendation = "wait_for_pullback"
+
+        scale_in_guidance = self._get_scale_in_guidance(
+            best_signal, distance_from_ml, dont_chase
+        )
 
         symbol = self.data["symbol"].iloc[0] if "symbol" in self.data.columns else "UNKNOWN"
 
@@ -205,7 +218,30 @@ class EntrySignalDetector:
             distance_from_high_pct=round(distance_from_high, 2),
             overall_score=overall_score,
             recommendation=recommendation,
+            dont_chase=dont_chase,
+            scale_in_guidance=scale_in_guidance,
         )
+
+    @staticmethod
+    def _get_scale_in_guidance(
+        best_signal: Optional["EntrySignal"],
+        distance_from_ml: float,
+        dont_chase: bool,
+    ) -> str:
+        """
+        Stine's scale-in law: build positions in tranches rather than all at once.
+
+        Guidance keys off how extended price is and how strong the entry is.
+        """
+        if dont_chase:
+            return "Extended >20% above the Magic Line — wait for a pullback; do not chase."
+        if best_signal is None:
+            return "No active entry signal — wait for a Magic Line touch before committing capital."
+        if best_signal.score >= 80 and distance_from_ml <= 5:
+            return "Strong signal near the Magic Line: start with a 1/2 position, add the rest on a confirmed bounce."
+        if best_signal.score >= 60:
+            return "Decent setup: scale in 1/3 now, 1/3 on confirmation, 1/3 on a higher low."
+        return "Marginal setup: take a starter 1/4 position only, or wait for a cleaner entry."
 
     def _detect_magic_line_touch(self) -> Optional[EntrySignal]:
         """

@@ -5,7 +5,7 @@ from datetime import datetime, date
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, BigInteger, Boolean, Date, DateTime,
-    DECIMAL, Text, ForeignKey, JSON, Index
+    DECIMAL, Text, ForeignKey, JSON, Index, UniqueConstraint
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -60,6 +60,7 @@ class PriceDataDaily(Base):
 
     __table_args__ = (
         Index("idx_price_daily_stock_date", "stock_id", "date"),
+        UniqueConstraint("stock_id", "date", name="uq_price_daily_stock_date"),
     )
 
 
@@ -81,6 +82,7 @@ class PriceDataWeekly(Base):
 
     __table_args__ = (
         Index("idx_price_weekly_stock_date", "stock_id", "week_start_date"),
+        UniqueConstraint("stock_id", "week_start_date", name="uq_price_weekly_stock_week"),
     )
 
 
@@ -122,6 +124,7 @@ class TechnicalIndicator(Base):
 
     __table_args__ = (
         Index("idx_technical_stock_date", "stock_id", "date"),
+        UniqueConstraint("stock_id", "date", name="uq_technical_stock_date"),
     )
 
 
@@ -221,6 +224,13 @@ class InsiderTransaction(Base):
     # Relationship
     stock = relationship("Stock", back_populates="insider_transactions")
 
+    __table_args__ = (
+        UniqueConstraint(
+            "stock_id", "transaction_date", "insider_name",
+            name="uq_insider_stock_date_name",
+        ),
+    )
+
 
 class Pattern(Base):
     """Detected patterns"""
@@ -274,6 +284,10 @@ class ScreeningResult(Base):
 
     # Relationship
     stock = relationship("Stock", back_populates="screening_results")
+
+    __table_args__ = (
+        UniqueConstraint("stock_id", "screen_date", name="uq_screening_stock_date"),
+    )
 
 
 class DataUpdate(Base):

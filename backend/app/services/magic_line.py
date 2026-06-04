@@ -24,6 +24,7 @@ class MagicLineResult:
     bounces: int
     respect_rate: float
     last_touch_date: Optional[str]
+    total_tests: int = 0  # times price touched the Magic Line (bounce candidates)
 
 
 class MagicLineDetector:
@@ -96,6 +97,9 @@ class MagicLineDetector:
         # Count bounces off the MA
         bounces = self._count_bounces(sma)
 
+        # Count every time price touched the MA (the denominator for bounces)
+        total_tests = self._count_touches(sma)
+
         # Calculate respect rate (how often price stays above MA)
         respect_rate = self._calculate_respect_rate(sma)
 
@@ -123,6 +127,7 @@ class MagicLineDetector:
             bounces=bounces,
             respect_rate=respect_rate,
             last_touch_date=last_touch,
+            total_tests=total_tests,
         )
 
     def _count_bounces(self, sma: pd.Series) -> int:
@@ -155,6 +160,28 @@ class MagicLineDetector:
                 bounces += 1
 
         return bounces
+
+    def _count_touches(self, sma: pd.Series) -> int:
+        """
+        Count how many days price touched the moving average.
+
+        This is the denominator for bounces: of all the times price came
+        down to the Magic Line, how many resulted in a successful bounce.
+        """
+        touches = 0
+
+        for i in range(1, len(self.data) - 1):
+            if pd.isna(sma.iloc[i]):
+                continue
+
+            ma_value = sma.iloc[i]
+            low = self.data["low"].iloc[i]
+            high = self.data["high"].iloc[i]
+
+            if low <= ma_value <= high:
+                touches += 1
+
+        return touches
 
     def _calculate_respect_rate(self, sma: pd.Series) -> float:
         """

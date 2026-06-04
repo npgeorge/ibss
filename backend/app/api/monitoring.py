@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.services.monitoring import (
     get_monitoring_service,
     check_all_data_sources,
+    get_data_freshness,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,3 +169,20 @@ async def get_active_alerts():
     service = get_monitoring_service()
     summary = service.get_dashboard_summary()
     return summary["active_alerts"]
+
+
+@router.get("/data-freshness", response_model=Dict[str, Any])
+async def data_freshness(staleness_days: int = 5):
+    """
+    Report database data freshness:
+
+    - Last successful scan/persist time
+    - Latest price date and how many tracked stocks have stale prices
+    - Coverage (stocks with price data) and recent data-update log rows
+
+    A stock counts as stale if its newest daily bar is older than
+    staleness_days (default 5, to tolerate weekends/holidays).
+    """
+    import asyncio
+
+    return await asyncio.to_thread(get_data_freshness, staleness_days)

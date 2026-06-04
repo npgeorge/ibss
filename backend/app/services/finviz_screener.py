@@ -373,21 +373,99 @@ class FinvizDetailFetcher:
     async def fetch_stock_details(
         self,
         symbols: List[str],
-        batch_size: int = 10,
+        delay: float = 0.4,
+        retries: int = 1,
     ) -> Dict[str, StockMetrics]:
         """
-        Fetch detailed metrics for a list of symbols
+        Fetch detailed metrics for a list of symbols (one Finviz quote each).
 
-        Args:
-            symbols: List of stock symbols
-            batch_size: Number of concurrent requests
+        Finviz rate-limits aggressively on bursts: a few dozen quote-page
+        requests in quick succession (even at modest concurrency) get refused.
+        So fetch sequentially with a small inter-request delay, then make one
+        retry pass (after a longer cooldown) for any symbols that were refused.
+        This reliably returns the full set for a ~75-symbol watch list.
 
         Returns:
-            Dict mapping symbol to StockMetrics
+            Dict mapping symbol to StockMetrics (symbols that fail are omitted).
         """
-        # For now, return empty dict - detailed fetching is optional
-        # The screener overview provides enough basic data
-        return {}
+        results: Dict[str, StockMetrics] = {}
+        pending = list(symbols)
+
+        for attempt in range(retries + 1):
+            missed: List[str] = []
+            for symbol in pending:
+                metrics = await self.fetch_single(symbol)
+                if metrics:
+                    results[symbol] = metrics
+                else:
+                    missed.append(symbol)
+                if delay:
+                    await asyncio.sleep(delay)
+
+            pending = missed
+            if not pending:
+                break
+            # Back off before retrying refused symbols so the rate limit clears.
+            await asyncio.sleep(2.0)
+
+        return results
+
+    async def fetch_single(self, symbol: str) -> Optional[StockMetrics]:
+        """Fetch fundamentals for one symbol via the Finviz quote page."""
+        return await asyncio.to_thread(self._fetch_single_sync, symbol.upper())
+
+    @staticmethod
+    def _fetch_single_sync(symbol: str) -> Optional[StockMetrics]:
+        """Blocking single-symbol Finviz quote fetch + parse into StockMetrics."""
+        try:
+            from finvizfinance.quote import finvizfinance as FinvizQuote
+
+            data = FinvizQuote(symbol).ticker_fundament()
+            if not data:
+                return None
+
+            pf = FinvizPreFilter._parse_float  # reuse the tolerant parser
+
+            # Growth (Finviz reports as percent strings e.g. "25.30%")
+            eps_growth = (
+                pf(data.get("EPS this Y"))
+                or pf(data.get("EPS next Y"))
+                or pf(data.get("EPS past 5Y"))
+            )
+            revenue_growth = (
+                pf(data.get("Sales Q/Q"))
+                or pf(data.get("Sales past 5Y"))
+            )
+
+            return StockMetrics(
+                symbol=symbol,
+                company=str(data.get("Company", symbol)),
+                sector=str(data.get("Sector", "")),
+                industry=str(data.get("Industry", "")),
+                country=str(data.get("Country", "USA")),
+                market_cap=FinvizPreFilter._parse_market_cap(data.get("Market Cap", "")),
+                price=pf(data.get("Price")) or 0.0,
+                change=0.0,
+                volume=0,
+                avg_volume=0,
+                relative_volume=pf(data.get("Rel Volume")) or 1.0,
+                float_shares=FinvizPreFilter._parse_market_cap(data.get("Shs Float", "")),
+                shares_outstanding=FinvizPreFilter._parse_market_cap(data.get("Shs Outstand", "")),
+                short_float=pf(data.get("Short Float")),
+                target_price=pf(data.get("Target Price")),
+                pe_ratio=pf(data.get("P/E")),
+                forward_pe=pf(data.get("Forward P/E")),
+                peg_ratio=pf(data.get("PEG")),
+                eps_ttm=pf(data.get("EPS (ttm)")),
+                eps_growth_yoy=eps_growth,
+                eps_growth_next_y=pf(data.get("EPS next Y")),
+                revenue_growth_yoy=revenue_growth,
+                debt_to_equity=pf(data.get("Debt/Eq")),
+                current_ratio=pf(data.get("Current Ratio")),
+            )
+        except Exception as e:
+            logger.debug(f"Finviz single-quote fetch failed for {symbol}: {e}")
+            return None
 
 
 async def get_prefiltered_symbols(

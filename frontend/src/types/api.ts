@@ -90,6 +90,12 @@ export interface StockScore {
 }
 
 // Stock Profile (Complete Analysis)
+export interface ExitSignal {
+  signal_type: 'magic_line_violation' | 'parabolic' | 'stall';
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+}
+
 export interface StockProfile {
   stock: Stock;
   current_price: number;
@@ -106,6 +112,10 @@ export interface StockProfile {
   entry_price?: number;
   stop_loss?: number;
   target_price?: number;
+  entry_recommendation?: string;
+  scale_in_guidance?: string;
+  exit_signals?: ExitSignal[];
+  exit_recommendation?: 'hold' | 'trim' | 'exit';
 }
 
 // Screening Criteria
@@ -126,6 +136,9 @@ export interface ScreeningCriteria {
   pattern_types?: string[];
 }
 
+// Per-sub-law scores (0-100) keyed by law id. null = not computed.
+export type LawScores = Record<string, number | null>;
+
 // Screening Result
 export interface ScreeningResult {
   stock: Stock;
@@ -135,6 +148,11 @@ export interface ScreeningResult {
   insider_activity: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
   recommendation: string;
   rank: number;
+  entry_price?: number;
+  stop_loss?: number;
+  target_price?: number;
+  entry_recommendation?: string;
+  law_scores?: LawScores;
 }
 
 // Portfolio Position
@@ -196,6 +214,51 @@ export interface QuickScanResponse {
   scan_date: string;
 }
 
+// Streaming scan (POST /screen/run, /screen/stream) — flat result shape
+export interface ScanStreamResult {
+  symbol: string;
+  company_name: string;
+  sector: string;
+  price: number;
+  market_cap: number;
+  technical_score: number;
+  fundamental_score: number;
+  insider_score: number;
+  pattern_score: number;
+  total_score: number;
+  rank?: number;
+  patterns: string[];
+  magic_line_period?: number;
+  magic_line_distance?: number;
+  entry_price?: number;
+  stop_loss?: number;
+  target_price?: number;
+  volume_signal?: string;
+  entry_recommendation?: string;
+  law_scores?: LawScores;
+}
+
+export type ScanStreamEvent =
+  | { type: 'progress'; stage: string; percent: number; message: string }
+  | { type: 'complete'; total: number; results: ScanStreamResult[] }
+  | { type: 'error'; error: string };
+
+export interface AISectorAverages {
+  total_score: number;
+  technical_score: number;
+  fundamental_score: number;
+  insider_score: number;
+  pattern_score: number;
+}
+
+export interface AISectorResponse {
+  results: ScanStreamResult[];
+  averages: Partial<AISectorAverages>;
+  count: number;
+  scanning: boolean;
+  last_scan: string | null;
+}
+
 export interface PositionSizeRequest {
   account_size: number;
   risk_percent: number;
@@ -208,4 +271,55 @@ export interface PositionSizeResponse {
   position_value: number;
   risk_amount: number;
   position_size_percent: number;
+}
+
+// Scoring Model (GET /screen/scoring-model) — drives the Method page so docs
+// can't drift from the backend scorer.
+export interface ScoringModel {
+  composite: Record<string, number>;
+  weights: {
+    technical: Record<string, number>;
+    fundamental: Record<string, number>;
+    insider: Record<string, number>;
+  };
+  entry_overlay: {
+    floor_factor: number;
+    max_factor: number;
+    dont_chase_distance_pct: number;
+  };
+  recommendation_tiers: { label: string; min_score: number; risk: string }[];
+}
+
+// Market Conditions (GET /market/conditions) — Entry Law #6: SPY trend + VIX
+// regime. Drives the Dashboard market-regime banner.
+export interface TrendSummary {
+  symbol: string;
+  current_price: number;
+  sma_50: number;
+  sma_200: number;
+  above_sma_50: boolean;
+  above_sma_200: boolean;
+  distance_from_50sma_pct: number;
+  trend: string;
+  score: number;
+}
+
+export interface VixSummary {
+  current_vix: number;
+  regime: string;
+  score: number;
+  is_favorable: boolean;
+}
+
+export interface MarketConditions {
+  regime: 'risk_on' | 'neutral' | 'risk_off' | 'crisis';
+  overall_score: number;
+  market_favorable: boolean;
+  should_be_aggressive: boolean;
+  should_be_defensive: boolean;
+  warning_message?: string | null;
+  warnings: string[];
+  spy?: TrendSummary | null;
+  vix?: VixSummary | null;
+  timestamp: string;
 }

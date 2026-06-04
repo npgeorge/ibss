@@ -1,140 +1,218 @@
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 .App {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #f5f7fa;
-  color: #1a1a1a;
+  background-color: transparent;
+  color: var(--ink);
 }
 
-.App-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.App-header h1 {
-  margin: 0;
-  padding: 20px 32px 16px;
-  font-size: 28px;
-  font-weight: 700;
-  color: white;
-  letter-spacing: -0.5px;
-}
-
-.App-header nav {
+/* ===================== Top bar ===================== */
+.te-topbar {
   display: flex;
+  align-items: stretch;
+  gap: 24px;
+  height: 60px;
+  padding: 0 20px;
+  background: rgba(12, 12, 14, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: var(--hair);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.te-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding-right: 24px;
+  border-right: var(--hair);
+}
+
+.te-brand-mark {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.te-brand-mark::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime-glow);
+  vertical-align: middle;
+}
+
+.te-brand-sub {
+  color: var(--ink-faint);
+}
+
+/* ===================== Nav tabs ===================== */
+.te-nav {
+  display: flex;
+  align-items: stretch;
   gap: 0;
-  padding: 0 32px;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.App-header nav a {
-  color: rgba(255, 255, 255, 0.9);
-  text-decoration: none;
-  padding: 14px 20px;
-  font-size: 15px;
-  font-weight: 600;
-  border-bottom: 3px solid transparent;
-  transition: all 0.2s;
-  position: relative;
-}
-
-.App-header nav a:hover {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  border-bottom-color: white;
-}
-
-main {
   flex: 1;
-  padding: 0;
-  width: 100%;
-  background-color: #f5f7fa;
+  overflow-x: auto;
 }
 
-footer {
-  background-color: #2a2a2a;
-  padding: 20px;
-  text-align: center;
-  color: #999;
+.te-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
   font-size: 13px;
-  border-top: 1px solid #e0e0e0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  white-space: nowrap;
 }
 
-/* Common styles */
+.te-tab:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.te-tab.is-active {
+  color: var(--lime);
+  border-bottom-color: var(--lime);
+}
+
+/* ===================== Status cluster ===================== */
+.te-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 20px;
+  border-left: var(--hair);
+}
+
+.te-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--up);
+  box-shadow: 0 0 8px var(--up);
+  animation: te-pulse 2s ease-in-out infinite;
+}
+
+@keyframes te-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ===================== Main / footer ===================== */
+.te-main {
+  flex: 1;
+  width: 100%;
+}
+
+.te-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-top: var(--hair);
+  background: var(--bg);
+}
+
+.te-footer-ver {
+  color: var(--ink-dim);
+}
+
+/* ===================== Shared primitives ===================== */
 .card {
-  background-color: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 24px;
-  margin-bottom: 24px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  background: var(--panel);
+  border: var(--hair);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 20px;
 }
 
 .card h3 {
   margin: 0 0 16px 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: #1a1a1a;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
 }
 
-/* Utility classes */
 .positive {
-  color: #4caf50;
+  color: var(--up);
 }
 
 .negative {
-  color: #f44336;
+  color: var(--down);
 }
 
 .loading {
   text-align: center;
-  padding: 40px;
-  color: #666;
-  font-size: 16px;
+  padding: 48px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.loading::after {
+  content: ' _';
+  animation: te-blink 1s step-end infinite;
+}
+
+@keyframes te-blink {
+  50% { opacity: 0; }
 }
 
 .error {
   text-align: center;
-  padding: 40px;
-  background: #ffebee;
-  border-radius: 6px;
-  color: #c62828;
+  padding: 32px;
+  background: rgba(255, 59, 48, 0.08);
+  border: 1px solid rgba(255, 59, 48, 0.4);
+  border-radius: var(--radius-lg);
+  color: var(--down);
 }
 
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
-  color: #666;
+  padding: 56px 20px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
 }
 
+/* ===================== Responsive ===================== */
 @media (max-width: 768px) {
-  .App-header h1 {
-    font-size: 22px;
-    padding: 16px 20px 12px;
+  .te-topbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 10px 16px;
   }
 
-  .App-header nav {
-    padding: 0 20px;
-    overflow-x: auto;
-    white-space: nowrap;
+  .te-brand {
+    border-right: none;
+    padding-right: 0;
   }
 
-  .App-header nav a {
-    padding: 12px 16px;
-    font-size: 14px;
+  .te-nav {
+    order: 3;
+    width: 100%;
+  }
+
+  .te-tab {
+    padding: 10px 14px;
+  }
+
+  .te-status {
+    border-left: none;
+    padding-left: 0;
   }
 }

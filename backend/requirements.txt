@@ -15,7 +15,6 @@ psycopg2-binary==2.9.9
 # Data Processing
 pandas==2.0.3
 numpy==1.24.4
-ta-lib==0.4.28
 
 # HTTP Clients
 httpx==0.25.1
@@ -23,7 +22,8 @@ aiohttp==3.9.1
 requests==2.31.0
 
 # Market Data
-yfinance==0.2.33
+yfinance==1.4.1
+curl_cffi==0.15.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
 finvizfinance==0.14.7

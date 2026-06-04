@@ -467,6 +467,94 @@ class MonitoringService:
         }
 
 
+def get_data_freshness(staleness_days: int = 5) -> Dict[str, Any]:
+    """
+    Report database data freshness for the Monitoring page.
+
+    Queries the DB (not the in-memory metrics) for:
+    - last successful scan/persist time (from data_updates)
+    - latest price date across all stocks + per-stock staleness count
+    - coverage (how many tracked stocks actually have price data)
+    - the most recent data_update log rows
+
+    staleness_days: a stock is "stale" if its newest daily bar is older than
+    this many calendar days (default 5 to tolerate weekends/holidays).
+    """
+    from datetime import date as _date
+    from sqlalchemy import func
+    from app.core.database import get_sync_db
+    from app.models.database import Stock, PriceDataDaily, DataUpdate
+
+    result: Dict[str, Any] = {
+        "checked_at": datetime.utcnow().isoformat(),
+        "last_scan_at": None,
+        "last_scan_status": None,
+        "total_stocks": 0,
+        "stocks_with_prices": 0,
+        "latest_price_date": None,
+        "stale_stock_count": 0,
+        "staleness_threshold_days": staleness_days,
+        "recent_updates": [],
+    }
+
+    try:
+        with get_sync_db() as db:
+            result["total_stocks"] = db.query(func.count(Stock.id)).scalar() or 0
+
+            # Latest price date per stock
+            per_stock = (
+                db.query(
+                    PriceDataDaily.stock_id.label("stock_id"),
+                    func.max(PriceDataDaily.date).label("last_date"),
+                )
+                .group_by(PriceDataDaily.stock_id)
+                .all()
+            )
+            result["stocks_with_prices"] = len(per_stock)
+            if per_stock:
+                latest = max(row.last_date for row in per_stock)
+                result["latest_price_date"] = latest.isoformat()
+                cutoff = _date.today() - timedelta(days=staleness_days)
+                result["stale_stock_count"] = sum(
+                    1 for row in per_stock if row.last_date < cutoff
+                )
+
+            # Last successful scan/persist
+            last_completed = (
+                db.query(DataUpdate)
+                .filter(DataUpdate.status == "completed")
+                .order_by(DataUpdate.completed_at.desc())
+                .first()
+            )
+            if last_completed and last_completed.completed_at:
+                result["last_scan_at"] = last_completed.completed_at.isoformat()
+                result["last_scan_status"] = last_completed.status
+
+            # Recent update log rows
+            recent = (
+                db.query(DataUpdate)
+                .order_by(DataUpdate.started_at.desc())
+                .limit(10)
+                .all()
+            )
+            result["recent_updates"] = [
+                {
+                    "update_type": u.update_type,
+                    "status": u.status,
+                    "records_processed": u.records_processed,
+                    "records_failed": u.records_failed,
+                    "started_at": u.started_at.isoformat() if u.started_at else None,
+                    "completed_at": u.completed_at.isoformat() if u.completed_at else None,
+                }
+                for u in recent
+            ]
+    except Exception as e:
+        logger.warning(f"Data freshness query failed: {e}")
+        result["error"] = str(e)
+
+    return result
+
+
 # Singleton instance
 _service: Optional[MonitoringService] = None
 

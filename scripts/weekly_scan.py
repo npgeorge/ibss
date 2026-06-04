@@ -74,6 +74,11 @@ def _parse_args() -> argparse.Namespace:
         help="Custom output file path (overrides default Obsidian vault path)",
     )
     parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Upsert qualifying results into the database (unified workflow)",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -100,11 +105,14 @@ async def _run(args: argparse.Namespace) -> int:
         criteria=criteria,
         mode=mode,
         progress_callback=on_progress,
+        persist=args.persist,
     )
 
     elapsed = time.time() - start
     print()
     print(f"Pipeline completed in {elapsed:.1f}s — {len(scored)} stocks passed filters")
+    if args.persist:
+        print("Results persisted to database.")
 
     if not scored:
         print("No stocks passed the screening criteria.")

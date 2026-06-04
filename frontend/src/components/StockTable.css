@@ -1,0 +1,233 @@
+.stock-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.st-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.st-clear {
+  padding: 4px 12px;
+  background: transparent;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+
+.st-clear:hover {
+  background: var(--amber);
+  color: #0c0c0e;
+}
+
+/* Horizontal scroll container */
+.st-scroll {
+  overflow-x: auto;
+  border: var(--hair);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.stock-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+/* Header rows */
+.stock-table thead th {
+  background: var(--panel-2);
+  color: var(--ink-faint);
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.st-group {
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime);
+  border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.st-col {
+  padding: 8px 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-bottom: 2px solid var(--line);
+  transition: color 0.12s, background 0.12s;
+}
+
+.st-col:hover {
+  color: var(--ink);
+  background: var(--panel-3);
+}
+
+.st-col.is-sorted {
+  color: var(--lime);
+}
+
+.st-arrow {
+  display: inline-block;
+  width: 10px;
+  margin-left: 3px;
+  font-size: 8px;
+}
+
+/* Filter row */
+.st-filterrow th {
+  padding: 4px 6px;
+  background: var(--panel-2);
+  border-bottom: var(--hair);
+}
+
+.st-filter-input {
+  width: 48px;
+  padding: 3px 6px;
+  background: var(--panel);
+  border: var(--hair);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.st-filter-input:focus {
+  outline: none;
+  border-color: var(--lime);
+}
+
+/* Hide number spinners */
+.st-filter-input::-webkit-outer-spin-button,
+.st-filter-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.st-filter-input {
+  -moz-appearance: textfield;
+}
+
+/* Sticky symbol column */
+.st-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.st-corner {
+  z-index: 3;
+  padding: 8px 14px;
+  text-align: left !important;
+  cursor: pointer;
+  background: var(--panel-2);
+  border-right: 1px solid var(--line);
+  border-bottom: 2px solid var(--line);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.st-symcell {
+  display: table-cell;
+  text-align: left;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-bottom: var(--hair);
+}
+
+.stock-table tbody tr:hover .st-symcell {
+  background: var(--panel-3);
+}
+
+.st-sym {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.st-name {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* Body cells */
+.stock-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.stock-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.st-cell {
+  padding: 8px 10px;
+  text-align: center;
+  border-bottom: var(--hair);
+  border-left: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.st-score {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.st-score.tone-strong { color: var(--up); }
+.st-score.tone-mid { color: var(--amber); }
+.st-score.tone-weak { color: var(--ink-dim); }
+.st-score.tone-zero { color: var(--ink-faint); }
+
+.st-na {
+  color: var(--ink-faint);
+  opacity: 0.5;
+}
+
+.st-num {
+  color: var(--ink-dim);
+}
+
+.st-rec {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.st-rec.strong-buy { background: rgba(0, 200, 83, 0.15); color: var(--up); }
+.st-rec.buy { background: rgba(198, 255, 0, 0.12); color: var(--lime); }
+.st-rec.hold { background: var(--panel-3); color: var(--ink-faint); }
+.st-rec.sell { background: rgba(255, 59, 48, 0.15); color: var(--down); }
+
+.st-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+}

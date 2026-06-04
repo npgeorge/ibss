@@ -4,10 +4,30 @@
  * Advanced stock screening with customizable filters
  */
 import React, { useState } from 'react';
-import { apiClient } from '../services/api';
+import { apiClient, scanResultToScreeningResult } from '../services/api';
 import { ScreeningCriteria, ScreeningResult } from '../types/api';
 import StockCard from '../components/StockCard';
+import ScanProgress, { ScanProgressData } from '../components/ScanProgress';
 import './Screener.css';
+
+const IDLE_PROGRESS: ScanProgressData = {
+  status: '',
+  current: 0,
+  total: 0,
+  currentSymbol: '',
+  percentComplete: 0,
+  resultsFound: 0,
+  phase: 'idle',
+};
+
+const STAGE_TO_PHASE: Record<string, ScanProgressData['phase']> = {
+  finviz: 'prefilter',
+  fetch: 'scanning',
+  insider: 'scanning',
+  score: 'scanning',
+  persist: 'scanning',
+  done: 'complete',
+};
 
 const Screener: React.FC = () => {
   const [criteria, setCriteria] = useState<ScreeningCriteria>({
@@ -21,6 +41,7 @@ const Screener: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [totalScreened, setTotalScreened] = useState<number>(0);
+  const [progress, setProgress] = useState<ScanProgressData>(IDLE_PROGRESS);
 
   const handleInputChange = (field: keyof ScreeningCriteria, value: any) => {
     setCriteria((prev) => ({
@@ -30,20 +51,44 @@ const Screener: React.FC = () => {
   };
 
   const runScreening = async () => {
+    const start = Date.now();
     try {
       setLoading(true);
       setError(null);
+      setProgress({ ...IDLE_PROGRESS, phase: 'starting', status: 'Launching scan...' });
 
-      const response = await apiClient.screenStocks({
+      const streamed = await apiClient.runScanStream(
         criteria,
-        limit: 50,
-      });
+        (event) => {
+          if (event.type === 'progress') {
+            setProgress((prev) => ({
+              ...prev,
+              phase: STAGE_TO_PHASE[event.stage] ?? 'scanning',
+              percentComplete: event.percent,
+              status: event.message,
+              currentSymbol: event.stage,
+            }));
+          } else if (event.type === 'complete') {
+            setProgress((prev) => ({
+              ...prev,
+              phase: 'complete',
+              percentComplete: 100,
+              total: event.total,
+              resultsFound: event.total,
+              scanTimeMs: Date.now() - start,
+            }));
+          }
+        },
+        { limit: 50, persist: true }
+      );
 
-      setResults(response.results);
-      setTotalScreened(response.total_screened);
+      const mapped = streamed.map(scanResultToScreeningResult);
+      setResults(mapped);
+      setTotalScreened(mapped.length);
     } catch (err: any) {
       console.error('Screening error:', err);
       setError(err.message || 'Failed to run screening');
+      setProgress((prev) => ({ ...prev, phase: 'error', errorMessage: err.message || 'Scan failed' }));
     } finally {
       setLoading(false);
     }
@@ -215,7 +260,7 @@ const Screener: React.FC = () => {
           )}
         </div>
 
-        {loading && <div className="loading">Running screening...</div>}
+        {progress.phase !== 'idle' && <ScanProgress progress={progress} />}
 
         {error && (
           <div className="error">

@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     DEFAULT_SCREEN_LIMIT: int = 100
     MAX_SCREEN_LIMIT: int = 1000
 
+    # Scheduler (in-process APScheduler orchestration)
+    ENABLE_SCHEDULER: bool = False  # opt-in; set true in prod/long-running deploys
+    SCHEDULER_TIMEZONE: str = "America/New_York"
+    DAILY_PRICE_UPDATE_HOUR: int = 16  # 4 PM ET
+    DAILY_PRICE_UPDATE_MINUTE: int = 30  # 30 min after close
+    WEEKLY_SCAN_DAY: str = "sun"  # cron day_of_week
+    WEEKLY_SCAN_HOUR: int = 6
+    WEEKLY_SCAN_MODE: str = "standard"  # quick | standard | deep
+    WEEKLY_SCAN_MIN_SCORE: float = 50.0
+
     # Risk Management
     DEFAULT_RISK_PER_TRADE: float = 0.02  # 2%
     MAX_POSITION_SIZE: float = 0.40  # 40%

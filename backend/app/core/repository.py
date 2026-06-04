@@ -7,6 +7,7 @@ business logic from database queries.
 from typing import List, Optional, Dict
 from datetime import datetime, date, timedelta
 from sqlalchemy import desc, and_, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 import pandas as pd
 
@@ -15,6 +16,9 @@ from app.models.database import (
     Earnings, Fundamental, InsiderTransaction, Pattern,
     ScreeningResult, DataUpdate
 )
+
+# Columns refreshed on price-data conflicts (OHLCV)
+_PRICE_UPDATE_COLS = ("open", "high", "low", "close", "volume")
 
 
 class StockRepository:
@@ -129,8 +133,36 @@ class StockRepository:
         return df
 
     def bulk_insert_price_data(self, price_data_list: List[Dict]):
-        """Bulk insert price data"""
-        self.db.bulk_insert_mappings(PriceDataDaily, price_data_list)
+        """Bulk upsert daily price data (idempotent on stock_id+date)"""
+        if not price_data_list:
+            return
+
+        stmt = pg_insert(PriceDataDaily).values(price_data_list)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["stock_id", "date"],
+            set_={
+                "open": stmt.excluded.open,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "close": stmt.excluded.close,
+                "volume": stmt.excluded.volume,
+                "adjusted_close": stmt.excluded.adjusted_close,
+            },
+        )
+        self.db.execute(stmt)
+        self.db.commit()
+
+    def bulk_upsert_weekly_data(self, weekly_data_list: List[Dict]):
+        """Bulk upsert weekly price data (idempotent on stock_id+week_start_date)"""
+        if not weekly_data_list:
+            return
+
+        stmt = pg_insert(PriceDataWeekly).values(weekly_data_list)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["stock_id", "week_start_date"],
+            set_={c: getattr(stmt.excluded, c) for c in _PRICE_UPDATE_COLS},
+        )
+        self.db.execute(stmt)
         self.db.commit()
 
     def get_latest_technical_indicators(self, stock_id: int) -> Optional[TechnicalIndicator]:
@@ -149,6 +181,24 @@ class StockRepository:
         self.db.commit()
         self.db.refresh(indicator)
         return indicator
+
+    def bulk_upsert_technical_indicators(self, indicator_list: List[Dict]):
+        """Bulk upsert technical indicators (idempotent on stock_id+date)"""
+        if not indicator_list:
+            return
+
+        # Columns to refresh on conflict = every provided column except the keys
+        update_cols = {
+            k for row in indicator_list for k in row.keys()
+        } - {"stock_id", "date", "id"}
+
+        stmt = pg_insert(TechnicalIndicator).values(indicator_list)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["stock_id", "date"],
+            set_={c: getattr(stmt.excluded, c) for c in update_cols},
+        )
+        self.db.execute(stmt)
+        self.db.commit()
 
 
 class InsiderRepository:
@@ -193,8 +243,30 @@ class InsiderRepository:
         )
 
     def bulk_insert_transactions(self, transactions: List[Dict]):
-        """Bulk insert insider transactions"""
-        self.db.bulk_insert_mappings(InsiderTransaction, transactions)
+        """Bulk upsert insider transactions (idempotent on stock_id+date+name)"""
+        if not transactions:
+            return
+
+        # Postgres ON CONFLICT DO UPDATE cannot touch the same target row twice
+        # in one statement. An insider can file multiple transactions on the same
+        # date, which collide on (stock_id, transaction_date, insider_name), so
+        # collapse those to the last occurrence before issuing the upsert.
+        deduped: Dict[tuple, Dict] = {}
+        for row in transactions:
+            key = (row.get("stock_id"), row.get("transaction_date"), row.get("insider_name"))
+            deduped[key] = row
+        transactions = list(deduped.values())
+
+        update_cols = {
+            k for row in transactions for k in row.keys()
+        } - {"stock_id", "transaction_date", "insider_name", "id"}
+
+        stmt = pg_insert(InsiderTransaction).values(transactions)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["stock_id", "transaction_date", "insider_name"],
+            set_={c: getattr(stmt.excluded, c) for c in update_cols},
+        )
+        self.db.execute(stmt)
         self.db.commit()
 
     def get_cluster_buying_stocks(self, days: int = 30, min_insiders: int = 2) -> List[int]:
@@ -319,9 +391,21 @@ class ScreeningRepository:
         return result
 
     def bulk_save_screening_results(self, results: List[Dict]):
-        """Bulk save screening results"""
-        for result_data in results:
-            self.save_screening_result(result_data)
+        """Bulk upsert screening results (idempotent on stock_id+screen_date)"""
+        if not results:
+            return
+
+        update_cols = {
+            k for row in results for k in row.keys()
+        } - {"stock_id", "screen_date", "id"}
+
+        stmt = pg_insert(ScreeningResult).values(results)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["stock_id", "screen_date"],
+            set_={c: getattr(stmt.excluded, c) for c in update_cols},
+        )
+        self.db.execute(stmt)
+        self.db.commit()
 
 
 class FundamentalRepository:

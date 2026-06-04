@@ -38,6 +38,28 @@ interface ScreeningMetrics {
   scans_by_mode: Record<string, number>;
 }
 
+interface DataUpdateRow {
+  update_type: string;
+  status: string;
+  records_processed: number | null;
+  records_failed: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+interface DataFreshness {
+  checked_at: string;
+  last_scan_at: string | null;
+  last_scan_status: string | null;
+  total_stocks: number;
+  stocks_with_prices: number;
+  latest_price_date: string | null;
+  stale_stock_count: number;
+  staleness_threshold_days: number;
+  recent_updates: DataUpdateRow[];
+  error?: string;
+}
+
 interface DashboardSummary {
   timestamp: string;
   api_health: {
@@ -63,6 +85,7 @@ const Monitoring: React.FC = () => {
   const [dataSources, setDataSources] = useState<Record<string, DataSourceHealth>>({});
   const [screeningMetrics, setScreeningMetrics] = useState<ScreeningMetrics | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [freshness, setFreshness] = useState<DataFreshness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,17 +98,19 @@ const Monitoring: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [healthRes, dataSourcesRes, screeningRes, summaryRes] = await Promise.all([
+      const [healthRes, dataSourcesRes, screeningRes, summaryRes, freshnessRes] = await Promise.all([
         fetch(`${API_BASE}/monitoring/health`),
         fetch(`${API_BASE}/monitoring/metrics/data-sources`),
         fetch(`${API_BASE}/monitoring/metrics/screening`),
         fetch(`${API_BASE}/monitoring/dashboard`),
+        fetch(`${API_BASE}/monitoring/data-freshness`),
       ]);
 
       if (healthRes.ok) setHealth(await healthRes.json());
       if (dataSourcesRes.ok) setDataSources(await dataSourcesRes.json());
       if (screeningRes.ok) setScreeningMetrics(await screeningRes.json());
       if (summaryRes.ok) setSummary(await summaryRes.json());
+      if (freshnessRes.ok) setFreshness(await freshnessRes.json());
 
     } catch (err: any) {
       setError(err.message || 'Failed to load monitoring data');
@@ -161,6 +186,71 @@ const Monitoring: React.FC = () => {
               <li key={idx} className="alert-item">{alert}</li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Data Freshness */}
+      {freshness && (
+        <div className="card">
+          <h3>Data Freshness</h3>
+          <div className="screening-metrics">
+            <div className="metrics-row">
+              <div className="metric-box">
+                <span className="metric-value">{formatTime(freshness.last_scan_at)}</span>
+                <span className="metric-label">Last Successful Scan</span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  {freshness.latest_price_date
+                    ? new Date(freshness.latest_price_date).toLocaleDateString()
+                    : 'None'}
+                </span>
+                <span className="metric-label">Latest Price Date</span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-value">
+                  {freshness.stocks_with_prices} / {freshness.total_stocks}
+                </span>
+                <span className="metric-label">Stocks with Prices</span>
+              </div>
+              <div className="metric-box">
+                <span className={`metric-value ${freshness.stale_stock_count > 0 ? 'warn' : ''}`}>
+                  {freshness.stale_stock_count}
+                </span>
+                <span className="metric-label">Stale (&gt;{freshness.staleness_threshold_days}d)</span>
+              </div>
+            </div>
+
+            {freshness.recent_updates.length > 0 && (
+              <div className="scans-by-mode">
+                <h4>Recent Data Updates</h4>
+                <table className="updates-table">
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Status</th>
+                      <th>Processed</th>
+                      <th>Started</th>
+                      <th>Completed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {freshness.recent_updates.map((u, idx) => (
+                      <tr key={idx}>
+                        <td>{u.update_type}</td>
+                        <td className={u.status === 'completed' ? 'ok' : u.status === 'running' ? '' : 'warn'}>
+                          {u.status}
+                        </td>
+                        <td>{u.records_processed ?? '-'}</td>
+                        <td>{formatTime(u.started_at)}</td>
+                        <td>{formatTime(u.completed_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

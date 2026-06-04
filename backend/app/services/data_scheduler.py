@@ -8,7 +8,7 @@ Manages automated data collection:
 - Monthly fundamental data updates
 """
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, date, timedelta
 from typing import List, Optional
 import logging
 from sqlalchemy.orm import Session
@@ -87,30 +87,46 @@ class DataUpdateScheduler:
             # Sleep for 1 day
             await asyncio.sleep(86400)
 
+    # How many symbols to request from yfinance in a single batched download
+    BATCH_SIZE = 150
+    # Daily window pulled on each incremental update (enough for trailing weekly)
+    INCREMENTAL_PERIOD = "3mo"
+
     async def update_all_stock_prices(self):
-        """Update price data for all active stocks"""
+        """Update price data for all active stocks using batched downloads"""
         update_id = self._log_update_start("price_daily")
 
         try:
             with get_sync_db() as db:
-                # Get all active stocks
                 stocks = db.query(Stock).filter(Stock.is_active == True).all()
+                symbol_to_id = {s.symbol: s.id for s in stocks}
+                symbols = list(symbol_to_id.keys())
 
-                logger.info(f"Updating prices for {len(stocks)} stocks")
+                logger.info(f"Updating prices for {len(symbols)} stocks (batched)")
 
                 processed = 0
                 failed = 0
 
-                for stock in stocks:
-                    try:
-                        await self.update_stock_price(stock.symbol, db)
-                        processed += 1
-                    except Exception as e:
-                        logger.error(f"Error updating {stock.symbol}: {e}")
-                        failed += 1
+                for start in range(0, len(symbols), self.BATCH_SIZE):
+                    chunk = symbols[start:start + self.BATCH_SIZE]
 
-                    # Rate limiting
-                    await asyncio.sleep(0.1)
+                    # One batched download per chunk instead of one call per symbol
+                    data_map = await asyncio.to_thread(
+                        YahooFinanceCollector.batch_fetch_historical_data,
+                        chunk,
+                        self.INCREMENTAL_PERIOD,
+                    )
+
+                    for symbol, df in data_map.items():
+                        try:
+                            self._upsert_daily_and_weekly(symbol_to_id[symbol], df, db)
+                            processed += 1
+                        except Exception as e:
+                            logger.error(f"Error updating {symbol}: {e}")
+                            failed += 1
+
+                    # Light pause between chunks to stay polite to the source
+                    await asyncio.sleep(0.5)
 
                 self._log_update_complete(update_id, processed, failed)
                 logger.info(
@@ -122,74 +138,87 @@ class DataUpdateScheduler:
             logger.error(f"Price update failed: {e}")
 
     async def update_stock_price(self, symbol: str, db: Session):
-        """
-        Update price data for a single stock
-
-        Args:
-            symbol: Stock symbol
-            db: Database session
-        """
-        from app.models.database import PriceDataDaily, PriceDataWeekly, Stock
-
-        # Fetch recent data (last 30 days)
-        df = self.market_data_collector.fetch_historical_data(symbol, period="1mo")
+        """Update price data for a single stock (manual / single-symbol path)"""
+        df = self.market_data_collector.fetch_historical_data(
+            symbol, period=self.INCREMENTAL_PERIOD
+        )
 
         if df.empty:
             logger.warning(f"No data retrieved for {symbol}")
             return
 
-        # Get stock from DB
         stock = db.query(Stock).filter(Stock.symbol == symbol).first()
         if not stock:
             logger.warning(f"Stock {symbol} not found in database")
             return
 
-        # Insert/update daily data
+        self._upsert_daily_and_weekly(stock.id, df, db)
+
+    def _upsert_daily_and_weekly(self, stock_id: int, df: pd.DataFrame, db: Session):
+        """
+        Bulk-upsert a window of daily bars and incrementally refresh the
+        trailing weekly bars they cover. Only the fetched window is rewritten,
+        so historical weekly bars from prior runs are preserved.
+        """
+        from app.core.repository import StockRepository
+
+        if df is None or df.empty:
+            return
+
+        repo = StockRepository(db)
+
+        # --- Daily ---
+        daily_rows = []
         for _, row in df.iterrows():
-            existing = (
-                db.query(PriceDataDaily)
-                .filter(
-                    PriceDataDaily.stock_id == stock.id,
-                    PriceDataDaily.date == row["date"],
-                )
-                .first()
-            )
+            d = pd.to_datetime(row["date"]).date() if "date" in row else pd.to_datetime(row.name).date()
+            close = float(row["close"])
+            daily_rows.append({
+                "stock_id": stock_id,
+                "date": d,
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": close,
+                "volume": int(row["volume"]) if not pd.isna(row["volume"]) else 0,
+                "adjusted_close": float(row.get("adjusted_close", close)),
+            })
+        repo.bulk_insert_price_data(daily_rows)
 
-            if existing:
-                # Update
-                existing.open = row["open"]
-                existing.high = row["high"]
-                existing.low = row["low"]
-                existing.close = row["close"]
-                existing.volume = row["volume"]
-                existing.adjusted_close = row["adjusted_close"]
-            else:
-                # Insert
-                price_data = PriceDataDaily(
-                    stock_id=stock.id,
-                    date=row["date"],
-                    open=row["open"],
-                    high=row["high"],
-                    low=row["low"],
-                    close=row["close"],
-                    volume=row["volume"],
-                    adjusted_close=row["adjusted_close"],
-                )
-                db.add(price_data)
+        # --- Weekly (incremental over the fetched window) ---
+        weekly_df = aggregate_to_weekly(pd.DataFrame(daily_rows))
+        if weekly_df.empty:
+            return
 
-        db.commit()
+        # Drop the leading week: a 3-month window can start mid-week, and we
+        # don't want a partial bar to overwrite a complete one from a prior run.
+        if len(weekly_df) > 1:
+            weekly_df = weekly_df.iloc[1:]
 
-        # Also update weekly data
-        await self.update_weekly_data(stock.id, db)
+        weekly_rows = [
+            {
+                "stock_id": stock_id,
+                "week_start_date": row["week_start_date"],
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+            }
+            for _, row in weekly_df.iterrows()
+        ]
+        repo.bulk_upsert_weekly_data(weekly_rows)
 
     async def update_weekly_data(self, stock_id: int, db: Session):
-        """Aggregate daily to weekly data"""
-        from app.models.database import PriceDataDaily, PriceDataWeekly
+        """Recompute trailing weekly bars from the most recent daily data."""
+        from app.models.database import PriceDataDaily
 
-        # Get all daily data for this stock
+        cutoff = date.today() - timedelta(days=120)
         daily_data = (
             db.query(PriceDataDaily)
-            .filter(PriceDataDaily.stock_id == stock_id)
+            .filter(
+                PriceDataDaily.stock_id == stock_id,
+                PriceDataDaily.date >= cutoff,
+            )
             .order_by(PriceDataDaily.date)
             .all()
         )
@@ -197,7 +226,6 @@ class DataUpdateScheduler:
         if not daily_data:
             return
 
-        # Convert to DataFrame
         df = pd.DataFrame(
             [
                 {
@@ -212,39 +240,26 @@ class DataUpdateScheduler:
             ]
         )
 
-        # Aggregate to weekly
         weekly_df = aggregate_to_weekly(df)
+        if weekly_df.empty:
+            return
+        if len(weekly_df) > 1:
+            weekly_df = weekly_df.iloc[1:]
 
-        # Insert/update weekly data
-        for _, row in weekly_df.iterrows():
-            existing = (
-                db.query(PriceDataWeekly)
-                .filter(
-                    PriceDataWeekly.stock_id == stock_id,
-                    PriceDataWeekly.week_start_date == row["week_start_date"],
-                )
-                .first()
-            )
-
-            if existing:
-                existing.open = row["open"]
-                existing.high = row["high"]
-                existing.low = row["low"]
-                existing.close = row["close"]
-                existing.volume = row["volume"]
-            else:
-                weekly_data = PriceDataWeekly(
-                    stock_id=stock_id,
-                    week_start_date=row["week_start_date"],
-                    open=row["open"],
-                    high=row["high"],
-                    low=row["low"],
-                    close=row["close"],
-                    volume=row["volume"],
-                )
-                db.add(weekly_data)
-
-        db.commit()
+        from app.core.repository import StockRepository
+        weekly_rows = [
+            {
+                "stock_id": stock_id,
+                "week_start_date": row["week_start_date"],
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+            }
+            for _, row in weekly_df.iterrows()
+        ]
+        StockRepository(db).bulk_upsert_weekly_data(weekly_rows)
 
     async def check_insider_filings(self):
         """Check for new insider filings"""

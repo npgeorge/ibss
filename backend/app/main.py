@@ -2,12 +2,33 @@
 IBSS (Superstocks) Dashboard - FastAPI Backend
 Main application entry point
 """
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.api import api_router
+from app.services.scheduler import start_scheduler, stop_scheduler
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start/stop the in-process orchestration scheduler with the app."""
+    try:
+        start_scheduler()
+    except Exception:
+        logger.exception("Failed to start scheduler")
+    yield
+    try:
+        stop_scheduler()
+    except Exception:
+        logger.exception("Failed to stop scheduler")
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -16,6 +37,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
+    lifespan=lifespan,
 )
 
 # Configure CORS

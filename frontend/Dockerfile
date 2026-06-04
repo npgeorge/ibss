@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN npm install
+# react-scripts@5 declares a peerOptional on typescript ^3||^4 while the app
+# pins typescript ^5; npm 10's strict peer resolver errors on that, so accept
+# the (working) resolution explicitly.
+RUN npm install --legacy-peer-deps
 
 # Copy application
 COPY . .

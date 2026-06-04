@@ -126,6 +126,40 @@ const StockDetail: React.FC = () => {
           </div>
         </div>
 
+        {/* Fundamental Analysis (Stine's Fundamental Super Laws) */}
+        {profile.score.score_breakdown?.fundamental && (
+          <div className="card fundamental-card">
+            <h3>Fundamental Analysis</h3>
+            <div className="fundamental-grid">
+              {[
+                { label: 'Earnings Growth', score: 'earnings_score', raw: 'earnings_growth', suffix: '%' },
+                { label: 'Revenue Growth', score: 'revenue_score', raw: 'revenue_growth', suffix: '%' },
+                { label: 'Valuation (PEG)', score: 'valuation_score', raw: 'peg_ratio', suffix: '' },
+                { label: 'Float / Share Structure', score: 'share_structure_score', raw: 'float_shares_m', suffix: 'M' },
+                { label: 'Balance Sheet', score: 'balance_sheet_score', raw: 'debt_to_equity', suffix: ' D/E' },
+                { label: 'Analyst Coverage', score: 'analyst_coverage_score', raw: 'analyst_count', suffix: ' analysts' },
+                { label: 'Earnings Acceleration', score: 'earnings_acceleration_score', raw: 'eps_growth_next_y', suffix: '% next Y' },
+              ].map((law) => {
+                const fund = profile.score.score_breakdown.fundamental;
+                const scoreVal = fund[law.score];
+                if (scoreVal === undefined || scoreVal === null) return null;
+                const rawVal = fund[law.raw];
+                return (
+                  <div key={law.score} className="fundamental-item">
+                    <span className="fundamental-label">{law.label}</span>
+                    <span className="fundamental-score">{Number(scoreVal).toFixed(0)}</span>
+                    {rawVal !== undefined && rawVal !== null && (
+                      <span className="fundamental-raw">
+                        {Number(rawVal).toFixed(rawVal % 1 === 0 ? 0 : 2)}{law.suffix}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Magic Line Analysis */}
         <div className="card magic-line-card">
           <h3>Magic Line Analysis</h3>
@@ -147,7 +181,7 @@ const StockDetail: React.FC = () => {
             </div>
             <div className="ml-stat">
               <span className="ml-label">Respect Rate</span>
-              <span className="ml-value">{(profile.magic_line.respect_rate * 100).toFixed(0)}%</span>
+              <span className="ml-value">{profile.magic_line.respect_rate.toFixed(0)}%</span>
             </div>
             <div className="ml-stat">
               <span className="ml-label">Bounce Count</span>
@@ -167,9 +201,14 @@ const StockDetail: React.FC = () => {
         </div>
 
         {/* Entry/Exit Levels */}
-        {(profile.entry_price || profile.stop_loss || profile.target_price) && (
+        {(profile.entry_price || profile.stop_loss || profile.target_price || profile.scale_in_guidance) && (
           <div className="card levels-card">
             <h3>Entry & Exit Levels</h3>
+            {profile.entry_recommendation && (
+              <div className={`entry-recommendation ${profile.entry_recommendation}`}>
+                Entry timing: <strong>{profile.entry_recommendation.replace(/_/g, ' ')}</strong>
+              </div>
+            )}
             <div className="levels-grid">
               {profile.entry_price && (
                 <div className="level-item">
@@ -189,6 +228,33 @@ const StockDetail: React.FC = () => {
                   <span className="level-value target">${profile.target_price.toFixed(2)}</span>
                 </div>
               )}
+            </div>
+            {profile.scale_in_guidance && (
+              <p className="scale-in-guidance">{profile.scale_in_guidance}</p>
+            )}
+          </div>
+        )}
+
+        {/* Exit Signals */}
+        {profile.exit_signals && profile.exit_signals.length > 0 && (
+          <div className="card exit-signals-card">
+            <h3>
+              Exit Signals
+              {profile.exit_recommendation && (
+                <span className={`exit-rec-badge ${profile.exit_recommendation}`}>
+                  {profile.exit_recommendation}
+                </span>
+              )}
+            </h3>
+            <div className="exit-signals-list">
+              {profile.exit_signals.map((signal, index) => (
+                <div key={index} className={`exit-signal-item ${signal.severity}`}>
+                  <span className="exit-signal-type">
+                    {signal.signal_type.replace(/_/g, ' ')}
+                  </span>
+                  <p className="exit-signal-message">{signal.message}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}

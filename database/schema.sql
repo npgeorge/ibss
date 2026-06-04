@@ -203,7 +203,9 @@ CREATE TABLE insider_transactions (
     form_type VARCHAR(20),  -- Form 4, Form 3, etc.
     sec_filing_url TEXT,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(stock_id, transaction_date, insider_name)
 );
 
 CREATE INDEX idx_insider_stock ON insider_transactions(stock_id);
@@ -470,11 +472,20 @@ ORDER BY it.transaction_date DESC;
 -- FUNCTIONS
 -- ============================================================================
 
--- Function: Update timestamp
+-- Function: Update timestamp (for tables with an updated_at column)
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Update timestamp (for tables with a last_updated column)
+CREATE OR REPLACE FUNCTION update_last_updated_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_updated = CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -489,4 +500,4 @@ CREATE TRIGGER update_portfolios_updated_at
 CREATE TRIGGER update_stocks_last_updated
     BEFORE UPDATE ON stocks
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+    EXECUTE FUNCTION update_last_updated_column();
