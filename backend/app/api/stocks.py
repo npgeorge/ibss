@@ -2,8 +2,10 @@
 Stock Data API Endpoints
 """
 import asyncio
+import time
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal, Tuple
 from pydantic import BaseModel
 from datetime import datetime, date
 from sqlalchemy.orm import Session
@@ -16,7 +18,7 @@ from app.core.repository import (
 from app.services.magic_line import MagicLineDetector
 from app.services.pattern_recognition import PatternRecognizer
 from app.services.exit_signals import ExitSignalDetector
-from app.services.screener import SuperstockScorer
+from app.services.screener import SuperstockScorer, _to_jsonable
 from app.services.technical_indicators import TechnicalIndicatorCalculator
 from app.services.finviz_screener import FinvizDetailFetcher
 from app.services.market_data import YahooFinanceCollector
@@ -497,7 +499,8 @@ async def get_stock_profile(symbol: str, db: Session = Depends(get_db)):
             insider_score=score.insider_score,
             pattern_score=score.pattern_score,
             total_score=score.total_score,
-            score_breakdown=score.score_breakdown or {},
+            # The breakdown carries numpy scalars the JSON encoder rejects.
+            score_breakdown=_to_jsonable(score.score_breakdown or {}),
         )
 
         return StockProfile(
@@ -662,3 +665,167 @@ async def get_technical_indicators(symbol: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculating indicators: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Price chart
+# ---------------------------------------------------------------------------
+
+class ChartBar(BaseModel):
+    time: str  # YYYY-MM-DD of the last session in the bar
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
+class ChartPoint(BaseModel):
+    time: str
+    value: float
+
+
+class ChartLine(BaseModel):
+    key: str  # fast_average | slow_average | magic_line | volume_average
+    label: str
+    points: List[ChartPoint]
+
+
+class StockChart(BaseModel):
+    symbol: str
+    interval: str
+    source: str  # "live" (Yahoo) or "database" (prices stored by the last scan)
+    bars: List[ChartBar]
+    lines: List[ChartLine]
+    volume_average: Optional[ChartLine] = None
+
+
+# Per interval: pandas resample rule (None = daily as-is), bars returned,
+# price moving averages, volume average, and the unit used in line labels.
+_CHART_INTERVALS = {
+    "daily": {"rule": None, "bars": 504, "averages": (50, 200), "volume_average": 50, "unit": "day"},
+    "weekly": {"rule": "W-FRI", "bars": 260, "averages": (10, 40), "volume_average": 10, "unit": "week"},
+    "monthly": {"rule": "M", "bars": 120, "averages": (10,), "volume_average": 10, "unit": "month"},
+}
+
+# Scans store one year of prices, too little for weekly/monthly bars, so charts
+# pull a longer daily history live and keep it here: symbol -> (fetched_at, frame).
+_CHART_HISTORY_PERIOD = "10y"
+_CHART_CACHE_TTL = 3600  # seconds
+_chart_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
+
+
+async def _chart_history(symbol: str, db: Session) -> Tuple[pd.DataFrame, str]:
+    """Daily OHLCV for a chart: live Yahoo history, else the stored scan prices."""
+    cached = _chart_cache.get(symbol)
+    if cached and time.time() - cached[0] < _CHART_CACHE_TTL:
+        return cached[1], "live"
+
+    live = await asyncio.to_thread(
+        YahooFinanceCollector.fetch_historical_data, symbol, None, None, _CHART_HISTORY_PERIOD
+    )
+    if not live.empty:
+        live["date"] = pd.to_datetime(live["date"])
+        live = live.set_index("date")
+        _chart_cache[symbol] = (time.time(), live)
+        return live, "live"
+
+    stock = StockRepository(db).get_stock_by_symbol(symbol)
+    if not stock:
+        return pd.DataFrame(), "database"
+    return StockRepository(db).get_price_data_as_dataframe(stock.id, days=3650), "database"
+
+
+def _resample_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """Roll daily bars up to weekly/monthly, dated by the last session in each."""
+    rolled = (
+        daily.assign(time=daily.index)
+        .resample(rule)
+        .agg({"time": "last", "open": "first", "high": "max", "low": "min",
+              "close": "last", "volume": "sum"})
+        .dropna(subset=["close"])
+    )
+    return rolled.set_index("time")
+
+
+def _chart_line(key: str, label: str, series: pd.Series, index: pd.Index) -> ChartLine:
+    visible = series.reindex(index).dropna()
+    return ChartLine(
+        key=key,
+        label=label,
+        points=[
+            ChartPoint(time=t.strftime("%Y-%m-%d"), value=round(float(v), 4))
+            for t, v in visible.items()
+        ],
+    )
+
+
+@router.get("/{symbol}/chart", response_model=StockChart)
+async def get_chart(
+    symbol: str,
+    interval: Literal["daily", "weekly", "monthly"] = "daily",
+    db: Session = Depends(get_db),
+):
+    """
+    Price bars, volume, and moving averages for the stock chart.
+
+    Daily charts carry the 50- and 200-day averages, weekly the 10- and
+    40-week, monthly the 10-month. Daily and weekly also carry the stock's
+    Magic Line when the stock has been scanned.
+    """
+    symbol = symbol.upper()
+    try:
+        daily, source = await _chart_history(symbol, db)
+        if daily.empty:
+            raise HTTPException(status_code=404, detail=f"No price history for {symbol}")
+
+        config = _CHART_INTERVALS[interval]
+        frame = _resample_bars(daily, config["rule"]) if config["rule"] else daily
+        shown = frame.tail(config["bars"]).index
+        unit = config["unit"]
+
+        stock = StockRepository(db).get_stock_by_symbol(symbol)
+        magic_weeks = stock.magic_line_period if stock else None
+        # The Magic Line is a weekly average; on a daily chart use the same span in sessions.
+        magic_bars = {"daily": (magic_weeks or 0) * 5, "weekly": magic_weeks or 0}.get(interval, 0)
+
+        lines: List[ChartLine] = []
+        for key, period in zip(("fast_average", "slow_average"), config["averages"]):
+            if period == magic_bars:
+                continue  # the Magic Line below is this same average
+            lines.append(_chart_line(
+                key, f"{period}-{unit}", frame["close"].rolling(period).mean(), shown
+            ))
+        if magic_bars:
+            lines.append(_chart_line(
+                "magic_line", f"Magic Line ({magic_weeks}-week)",
+                frame["close"].rolling(magic_bars).mean(), shown,
+            ))
+
+        volume_period = config["volume_average"]
+        return StockChart(
+            symbol=symbol,
+            interval=interval,
+            source=source,
+            bars=[
+                ChartBar(
+                    time=t.strftime("%Y-%m-%d"),
+                    open=round(float(row.open), 4),
+                    high=round(float(row.high), 4),
+                    low=round(float(row.low), 4),
+                    close=round(float(row.close), 4),
+                    volume=int(row.volume),
+                )
+                for t, row in frame.loc[shown].iterrows()
+            ],
+            lines=lines,
+            volume_average=_chart_line(
+                "volume_average", f"{volume_period}-{unit} avg volume",
+                frame["volume"].rolling(volume_period).mean(), shown,
+            ),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error building chart for {symbol}: {str(e)}")

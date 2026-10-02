@@ -125,11 +125,99 @@
   background: rgba(255, 59, 48, 0.1);
 }
 
-/* ===================== Body ===================== */
+.stock-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chart-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: transparent;
+  border: var(--hair);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.chart-toggle:hover {
+  border-color: var(--line-bright);
+  color: var(--ink);
+}
+
+.chart-toggle.active {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: var(--bg);
+}
+
+/* ===================== Body / chart stage ===================== */
+/* The body and the chart share this box; toggling slides one out for the other. */
+.stock-card-stage {
+  position: relative;
+  flex: 1;
+}
+
+.stock-card-stage.chart-open {
+  min-height: 250px;
+}
+
 .stock-card-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Hidden, not removed, so the tile keeps its height under the chart. */
+.chart-open .stock-card-body {
+  visibility: hidden;
+}
+
+.chart-closed .stock-card-body {
+  animation: stock-card-slide-from-left 0.28s ease;
+}
+
+.stock-card-chart {
+  display: none;
+  position: absolute;
+  inset: 0;
+  cursor: default;
+}
+
+.chart-open .stock-card-chart {
+  display: block;
+  animation: stock-card-slide-from-right 0.28s ease;
+}
+
+@keyframes stock-card-slide-from-right {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+
+@keyframes stock-card-slide-from-left {
+  from {
+    transform: translateX(-40px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-open .stock-card-chart,
+  .chart-closed .stock-card-body {
+    animation: none;
+  }
 }
 
 /* ----- Score ----- */

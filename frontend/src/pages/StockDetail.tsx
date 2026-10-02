@@ -6,8 +6,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../services/api';
-import { StockProfile } from '../types/api';
+import { ScoringModel, StockProfile } from '../types/api';
 import { format } from 'date-fns';
+import PriceChart from '../components/PriceChart';
 import './StockDetail.css';
 
 const StockDetail: React.FC = () => {
@@ -16,12 +17,21 @@ const StockDetail: React.FC = () => {
   const [profile, setProfile] = useState<StockProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [scoringModel, setScoringModel] = useState<ScoringModel | null>(null);
 
   useEffect(() => {
     if (symbol) {
       loadStockProfile(symbol);
     }
   }, [symbol]);
+
+  // Live weights, so each fundamental law's weighted score matches the scorer.
+  useEffect(() => {
+    apiClient
+      .getScoringModel()
+      .then(setScoringModel)
+      .catch((err) => console.error('Error loading scoring model:', err));
+  }, []);
 
   const loadStockProfile = async (sym: string) => {
     try {
@@ -97,6 +107,11 @@ const StockDetail: React.FC = () => {
       </div>
 
       <div className="stock-detail-content">
+        {/* Price Chart */}
+        <div className="card chart-card">
+          <PriceChart symbol={profile.stock.symbol} />
+        </div>
+
         {/* Score Overview */}
         <div className="card score-overview">
           <h3>Analysis Scores</h3>
@@ -132,27 +147,53 @@ const StockDetail: React.FC = () => {
             <h3>Fundamental Analysis</h3>
             <div className="fundamental-grid">
               {[
-                { label: 'Earnings Growth', score: 'earnings_score', raw: 'earnings_growth', suffix: '%' },
-                { label: 'Revenue Growth', score: 'revenue_score', raw: 'revenue_growth', suffix: '%' },
-                { label: 'Valuation (PEG)', score: 'valuation_score', raw: 'peg_ratio', suffix: '' },
-                { label: 'Float / Share Structure', score: 'share_structure_score', raw: 'float_shares_m', suffix: 'M' },
-                { label: 'Balance Sheet', score: 'balance_sheet_score', raw: 'debt_to_equity', suffix: ' D/E' },
-                { label: 'Analyst Coverage', score: 'analyst_coverage_score', raw: 'analyst_count', suffix: ' analysts' },
-                { label: 'Earnings Acceleration', score: 'earnings_acceleration_score', raw: 'eps_growth_next_y', suffix: '% next Y' },
+                { label: 'Earnings Growth', score: 'earnings_score', raw: 'earnings_growth', suffix: '%', weight: 'earnings_growth' },
+                { label: 'Revenue Growth', score: 'revenue_score', raw: 'revenue_growth', suffix: '%', weight: 'revenue_growth' },
+                // The API sends a PEG of 0 when Finviz has none.
+                { label: 'Valuation (PEG)', score: 'valuation_score', raw: 'peg_ratio', suffix: '', weight: 'valuation', zeroIsMissing: true },
+                { label: 'Float / Share Structure', score: 'share_structure_score', raw: 'float_shares_m', suffix: 'M', weight: 'share_structure' },
+                { label: 'Balance Sheet', score: 'balance_sheet_score', raw: 'debt_to_equity', suffix: ' D/E', weight: 'balance_sheet' },
+                { label: 'Analyst Coverage', score: 'analyst_coverage_score', raw: 'analyst_count', suffix: ' analysts', weight: 'analyst_coverage' },
+                { label: 'Earnings Acceleration', score: 'earnings_acceleration_score', raw: 'eps_growth_next_y', suffix: '% next Y', weight: 'earnings_acceleration' },
               ].map((law) => {
                 const fund = profile.score.score_breakdown.fundamental;
                 const scoreVal = fund[law.score];
                 if (scoreVal === undefined || scoreVal === null) return null;
                 const rawVal = fund[law.raw];
+                const hasRaw =
+                  rawVal !== undefined && rawVal !== null && !(law.zeroIsMissing && rawVal === 0);
+                // Points this law adds to the Fundamental score, out of the most
+                // it can add; the weighted scores of all laws sum to that score.
+                const lawWeight = scoringModel?.weights.fundamental[law.weight];
+                const groupWeight = scoringModel?.composite.fundamental;
+                const maxPoints =
+                  lawWeight !== undefined && groupWeight ? (lawWeight / groupWeight) * 100 : null;
                 return (
                   <div key={law.score} className="fundamental-item">
                     <span className="fundamental-label">{law.label}</span>
-                    <span className="fundamental-score">{Number(scoreVal).toFixed(0)}</span>
-                    {rawVal !== undefined && rawVal !== null && (
-                      <span className="fundamental-raw">
-                        {Number(rawVal).toFixed(rawVal % 1 === 0 ? 0 : 2)}{law.suffix}
-                      </span>
-                    )}
+                    <span className="fundamental-value">
+                      {hasRaw ? (
+                        <>
+                          {Number(rawVal).toFixed(rawVal % 1 === 0 ? 0 : 2)}
+                          <span className="fundamental-unit">{law.suffix}</span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </span>
+                    <span
+                      className="fundamental-ws"
+                      title="Weighted score: points added to the Fundamental score, over the most this law can add. The larger number is the law's own 0–100 score."
+                    >
+                      <span className="fundamental-ws-label">W.S.</span>
+                      {maxPoints !== null && (
+                        <span className="fundamental-frac">
+                          <span>{((Number(scoreVal) / 100) * maxPoints).toFixed(1)}</span>
+                          <span>{maxPoints.toFixed(1)}</span>
+                        </span>
+                      )}
+                      <span className="fundamental-ws-score">{Number(scoreVal).toFixed(0)}</span>
+                    </span>
                   </div>
                 );
               })}

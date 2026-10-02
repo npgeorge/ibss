@@ -42,7 +42,7 @@ class StockMetrics:
     sector: str
     industry: str
     country: str
-    market_cap: float  # in millions
+    market_cap: float  # in dollars
     price: float
     change: float  # percent change
     volume: int
@@ -141,18 +141,26 @@ class FinvizPreFilter:
         ScanMode.DEEP: 100,     # ~2000 stocks max
     }
 
+    # Finviz only serves the first 1000 screener rows to scripted clients; any
+    # request past that is refused with a 403, which would fail the whole
+    # fetch. No mode may page beyond it.
+    MAX_ROWS = 1000
+
     def __init__(self):
         self._executor = ThreadPoolExecutor(max_workers=1)
 
     async def get_prefiltered_symbols(
         self,
-        mode: ScanMode = ScanMode.STANDARD
+        mode: ScanMode = ScanMode.STANDARD,
+        price_max: Optional[float] = None,
     ) -> PreFilterResult:
         """
         Get pre-filtered stock symbols from Finviz
 
         Args:
             mode: Scan mode determining filter strictness
+            price_max: The scan's price ceiling, used to request a tighter
+                Finviz price bucket when one fits
 
         Returns:
             PreFilterResult with symbols and enriched metrics
@@ -165,7 +173,8 @@ class FinvizPreFilter:
             df = await loop.run_in_executor(
                 self._executor,
                 self._fetch_screener_data,
-                mode
+                mode,
+                price_max,
             )
 
             # Parse and enrich data
@@ -211,20 +220,32 @@ class FinvizPreFilter:
                 filter_time_ms=0,
             )
 
-    def _fetch_screener_data(self, mode: ScanMode) -> Optional[pd.DataFrame]:
+    def _capped_view(self, view: Overview) -> Optional[pd.DataFrame]:
+        """Fetch a screener view, smallest market cap first, within MAX_ROWS.
+
+        Ordering by market cap means a universe larger than the cap loses its
+        biggest companies rather than the end of the alphabet.
+        """
+        return view.screener_view(order='Market Cap.', limit=self.MAX_ROWS, verbose=0)
+
+    def _fetch_screener_data(
+        self, mode: ScanMode, price_max: Optional[float] = None
+    ) -> Optional[pd.DataFrame]:
         """Fetch screener data using finvizfinance (synchronous)"""
         try:
             foverview = Overview()
-            filters = self.MODE_FILTERS.get(mode, {})
+            filters = dict(self.MODE_FILTERS.get(mode, {}))
+
+            # The scorer drops anything above the scan's price ceiling, so ask
+            # Finviz for the tighter bucket when it fits: fewer wasted rows
+            # against the MAX_ROWS cap.
+            if price_max is not None and price_max <= 10 and filters.get('Price') == '$1 to $20':
+                filters['Price'] = '$1 to $10'
 
             if filters:
                 foverview.set_filter(filters_dict=filters)
 
-            # Fetch overview data — try with verbose param, fall back without
-            try:
-                df = foverview.screener_view(verbose=0)
-            except TypeError:
-                df = foverview.screener_view()
+            df = self._capped_view(foverview)
 
             if df is None or df.empty:
                 return df
@@ -236,10 +257,7 @@ class FinvizPreFilter:
                 fvaluation = Valuation()
                 if filters:
                     fvaluation.set_filter(filters_dict=filters)
-                try:
-                    val_df = fvaluation.screener_view(verbose=0)
-                except TypeError:
-                    val_df = fvaluation.screener_view()
+                val_df = self._capped_view(fvaluation)
 
                 if val_df is not None and not val_df.empty:
                     logger.info(f"Finviz valuation returned {len(val_df)} rows, columns: {list(val_df.columns)}")
@@ -267,15 +285,15 @@ class FinvizPreFilter:
             # Parse PEG from valuation view (column name: "PEG")
             peg_ratio = self._parse_float(row.get('PEG'))
 
-            # Parse EPS growth — valuation view has "EPS this Y" or "EPS next Y"
+            # Parse EPS growth — valuation view has "EPS This Y" or "EPS Next Y"
             eps_growth = (
-                self._parse_float(row.get('EPS this Y'))
-                or self._parse_float(row.get('EPS next Y'))
-                or self._parse_float(row.get('EPS past 5Y'))
+                self._parse_float(row.get('EPS This Y'))
+                or self._parse_float(row.get('EPS Next Y'))
+                or self._parse_float(row.get('EPS Past 5Y'))
             )
 
-            # Parse revenue/sales growth — valuation view has "Sales past 5Y"
-            revenue_growth = self._parse_float(row.get('Sales past 5Y'))
+            # Parse revenue/sales growth — valuation view has "Sales Past 5Y"
+            revenue_growth = self._parse_float(row.get('Sales Past 5Y'))
 
             return StockMetrics(
                 symbol=symbol,
@@ -285,7 +303,7 @@ class FinvizPreFilter:
                 country=str(row.get('Country', 'USA')),
                 market_cap=self._parse_market_cap(row.get('Market Cap', '')),
                 price=self._parse_float(row.get('Price', 0)) or 0.0,
-                change=self._parse_percent(row.get('Change', '')),
+                change=self._parse_percent(row.get('Change %', '')),
                 volume=self._parse_volume(row.get('Volume', 0)),
                 avg_volume=0,  # Not available in overview
                 relative_volume=1.0,
@@ -426,10 +444,11 @@ class FinvizDetailFetcher:
 
             pf = FinvizPreFilter._parse_float  # reuse the tolerant parser
 
-            # Growth (Finviz reports as percent strings e.g. "25.30%")
+            # Growth (Finviz reports as percent strings e.g. "25.30%"). Note the
+            # plain "EPS next Y" field is a dollar estimate, not a growth rate.
             eps_growth = (
                 pf(data.get("EPS this Y"))
-                or pf(data.get("EPS next Y"))
+                or pf(data.get("EPS next Y Percentage"))
                 or pf(data.get("EPS past 5Y"))
             )
             revenue_growth = (
@@ -443,7 +462,8 @@ class FinvizDetailFetcher:
                 sector=str(data.get("Sector", "")),
                 industry=str(data.get("Industry", "")),
                 country=str(data.get("Country", "USA")),
-                market_cap=FinvizPreFilter._parse_market_cap(data.get("Market Cap", "")),
+                # Quote pages give "1.50B"; the screener views give dollars.
+                market_cap=FinvizPreFilter._parse_market_cap(data.get("Market Cap", "")) * 1_000_000,
                 price=pf(data.get("Price")) or 0.0,
                 change=0.0,
                 volume=0,
@@ -458,7 +478,7 @@ class FinvizDetailFetcher:
                 peg_ratio=pf(data.get("PEG")),
                 eps_ttm=pf(data.get("EPS (ttm)")),
                 eps_growth_yoy=eps_growth,
-                eps_growth_next_y=pf(data.get("EPS next Y")),
+                eps_growth_next_y=pf(data.get("EPS next Y Percentage")),
                 revenue_growth_yoy=revenue_growth,
                 debt_to_equity=pf(data.get("Debt/Eq")),
                 current_ratio=pf(data.get("Current Ratio")),

@@ -807,7 +807,9 @@ async def run_full_pipeline(
     else:
         await _progress("finviz", 0, "Fetching Finviz pre-filtered universe...")
         prefilter = FinvizPreFilter()
-        pf_result: PreFilterResult = await prefilter.get_prefiltered_symbols(mode)
+        pf_result: PreFilterResult = await prefilter.get_prefiltered_symbols(
+            mode, price_max=criteria.price_max
+        )
         symbols = pf_result.symbols
         finviz_metrics = pf_result.metrics
 
@@ -942,7 +944,8 @@ async def run_full_pipeline(
         try:
             # Run the blocking DB writes off the event loop
             counts = await asyncio.to_thread(
-                _persist_scan_results, scored, price_data_map, insider_by_symbol, finviz_metrics
+                _persist_scan_results, scored, price_data_map, insider_by_symbol, finviz_metrics,
+                not discrete,
             )
             await _progress(
                 "persist", 100,
@@ -987,6 +990,7 @@ def _persist_scan_results(
     price_data_map: Dict[str, pd.DataFrame],
     insider_by_symbol: Dict[str, InsiderActivitySummary],
     finviz_metrics: Dict[str, StockMetrics],
+    save_results: bool = True,
 ) -> Dict[str, int]:
     """
     Upsert the qualifying stocks' data into the database.
@@ -995,6 +999,10 @@ def _persist_scan_results(
     re-running a scan updates existing rows instead of erroring or duplicating.
     Only the scored (qualifying) stocks are persisted to keep the write volume
     proportional to the signal.
+
+    save_results=False stores the stocks' data without screening_results rows:
+    a discrete watch-list scan must not replace the market-wide ranking the
+    dashboard reads as "latest".
     """
     from datetime import date as _date, datetime as _datetime
     from app.core.database import get_sync_db
@@ -1127,7 +1135,7 @@ def _persist_scan_results(
                 "score_breakdown": _to_jsonable(s.score_breakdown),
             })
 
-        if screening_rows:
+        if save_results and screening_rows:
             screen_repo.bulk_save_screening_results(screening_rows)
 
         update_log.status = "completed"

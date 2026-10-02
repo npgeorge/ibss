@@ -667,6 +667,9 @@ async def _run_ai_scan_background():
                 min_total_score=0.0,
             ),
             symbols=AI_SECTOR_SYMBOLS,
+            # The stock detail page reads from the database, so the watch
+            # list has to be stored for its tiles to open.
+            persist=True,
         )
         results = [_score_to_result(s) for s in scored]
         _set_cached("ai_sector", results, ttl=AI_CACHE_TTL)

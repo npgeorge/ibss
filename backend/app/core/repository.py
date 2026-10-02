@@ -129,6 +129,8 @@ class StockRepository:
             for p in price_data
         ])
 
+        # DatetimeIndex, as the live pipeline produces: weekly resampling needs it.
+        df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date")
         return df
 

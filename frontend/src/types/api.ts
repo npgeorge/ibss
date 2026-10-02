@@ -323,3 +323,30 @@ export interface MarketConditions {
   vix?: VixSummary | null;
   timestamp: string;
 }
+
+// Price chart (GET /stocks/{symbol}/chart)
+export type ChartInterval = 'daily' | 'weekly' | 'monthly';
+
+export interface ChartBar {
+  time: string; // YYYY-MM-DD of the last session in the bar
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface ChartLine {
+  key: 'fast_average' | 'slow_average' | 'magic_line' | 'volume_average';
+  label: string;
+  points: { time: string; value: number }[];
+}
+
+export interface StockChart {
+  symbol: string;
+  interval: ChartInterval;
+  source: 'live' | 'database';
+  bars: ChartBar[];
+  lines: ChartLine[];
+  volume_average: ChartLine | null;
+}

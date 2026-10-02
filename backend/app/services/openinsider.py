@@ -197,7 +197,7 @@ class OpenInsiderScraper:
                 f"s=&o=&pl={price_min}&ph={price_max}"
                 f"&ll=&lh=&fd={days}&fdr=&td=0&tdr=&"
                 f"fdlyl=&fdlyh=&dtefrom=&dteto=&"
-                f"xp=1&xs=0&vl={min_value}&vh=&"
+                f"xp=1&xs=0&vl={min_value // 1000}&vh=&"  # vl is in $ thousands
                 f"ocl=&och=&session=1&"
                 f"cnt=500"  # Get up to 500 results
             )
@@ -303,7 +303,7 @@ class OpenInsiderScraper:
                 f"s=&o=&pl={price_min}&ph={price_max}"
                 f"&ll=&lh=&fd={days}&fdr=&td=0&tdr=&"
                 f"fdlyl=&fdlyh=&dtefrom=&dteto=&"
-                f"xp=1&xs=0&vl=10000&vh=&"  # Purchases only, >$10k
+                f"xp=1&xs=0&vl=10&vh=&"  # Purchases only, >$10k (vl is in $ thousands)
                 f"ocl=&och=&session=1&"
                 f"cnt=1000"  # Get up to 1000 results
             )

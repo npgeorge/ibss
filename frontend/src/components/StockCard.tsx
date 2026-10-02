@@ -3,9 +3,10 @@
  *
  * Displays a stock screening result in a card format
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ScreeningResult } from '../types/api';
+import PriceChart from './PriceChart';
 import './StockCard.css';
 
 interface StockCardProps {
@@ -55,6 +56,16 @@ const StockCard: React.FC<StockCardProps> = ({ result, rank }) => {
     navigate(`/stock/${stock.symbol}`);
   };
 
+  const [showChart, setShowChart] = useState(false);
+  // Mounted on first open only, so tiles that never show a chart fetch nothing.
+  const [chartMounted, setChartMounted] = useState(false);
+
+  const toggleChart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setChartMounted(true);
+    setShowChart((open) => !open);
+  };
+
   return (
     <div className="stock-card" onClick={handleClick}>
       <div className="stock-card-header">
@@ -67,12 +78,31 @@ const StockCard: React.FC<StockCardProps> = ({ result, rank }) => {
             <p className="stock-name">{stock.company_name}</p>
           </div>
         </div>
-        <div className={`recommendation-badge ${getRecommendationColor(recommendation)}`}>
-          <span className="rec-dot" aria-hidden="true" />
-          {formatRecommendation(recommendation)}
+        <div className="stock-card-actions">
+          <button
+            type="button"
+            className={`chart-toggle ${showChart ? 'active' : ''}`}
+            aria-pressed={showChart}
+            aria-label={showChart ? `Hide ${stock.symbol} chart` : `Show ${stock.symbol} chart`}
+            onClick={toggleChart}
+          >
+            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+              <path d="M2 3v7M6 1v8M10 4v7M2 7h2M6 3h2M10 9h2" stroke="currentColor" strokeWidth="1.4" fill="none" />
+            </svg>
+            Chart
+          </button>
+          <div className={`recommendation-badge ${getRecommendationColor(recommendation)}`}>
+            <span className="rec-dot" aria-hidden="true" />
+            {formatRecommendation(recommendation)}
+          </div>
         </div>
       </div>
 
+      <div
+        className={`stock-card-stage ${
+          showChart ? 'chart-open' : chartMounted ? 'chart-closed' : ''
+        }`}
+      >
       <div className="stock-card-body">
         <div className="score-section">
           <div className="total-score">
@@ -163,6 +193,13 @@ const StockCard: React.FC<StockCardProps> = ({ result, rank }) => {
             </div>
           </div>
         )}
+      </div>
+      {chartMounted && (
+        // Clicks inside the chart pan and inspect it; they must not open the stock page.
+        <div className="stock-card-chart" onClick={(e) => e.stopPropagation()}>
+          <PriceChart symbol={stock.symbol} compact />
+        </div>
+      )}
       </div>
     </div>
   );

@@ -60,16 +60,20 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency for database sessions"""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency for database sessions.
+
+    Synchronous: the repositories it feeds use the ORM query API, which an
+    AsyncSession doesn't provide.
+    """
+    db = SyncSessionLocal()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def init_db():

@@ -22,6 +22,8 @@ import {
   ScoringModel,
   MarketConditions,
   AISectorResponse,
+  ChartInterval,
+  StockChart,
 } from '../types/api';
 
 const API_BASE_URL =
@@ -117,6 +119,16 @@ class ApiClient {
    */
   async getStockProfile(symbol: string): Promise<StockProfile> {
     const response = await this.client.get<StockProfile>(`/stocks/${symbol}`);
+    return response.data;
+  }
+
+  /**
+   * Get price bars, volume, and moving averages for the stock chart
+   */
+  async getStockChart(symbol: string, interval: ChartInterval): Promise<StockChart> {
+    const response = await this.client.get<StockChart>(`/stocks/${symbol}/chart`, {
+      params: { interval },
+    });
     return response.data;
   }
 
